@@ -1,5 +1,6 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { z } from 'zod';
+import { badRequest } from './errors.js';
 
 /** Wrap an async handler so rejections reach the error middleware. */
 export const ah =
@@ -10,7 +11,7 @@ export const ah =
 
 export const idParam = (req: Request, name = 'id'): number => {
   const n = Number(req.params[name]);
-  if (!Number.isInteger(n) || n <= 0) throw Object.assign(new Error('Invalid id'), { status: 400 });
+  if (!Number.isInteger(n) || n <= 0) throw badRequest(`Invalid ${name}`);
   return n;
 };
 

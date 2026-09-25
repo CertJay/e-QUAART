@@ -427,6 +427,10 @@ describe('reports & exports', () => {
     expect((await (await asUser('chief.cid@equaart.local')).get('/reports/class?sectionId=1')).body.containsPersonalData).toBe(false);
   });
 
+  it('rejects malformed ids with 400', async () => {
+    expect((await (await asUser(PRINCIPAL)).get('/assessments/abc')).status).toBe(400);
+  });
+
   it('refuses learner reports for aggregate-only roles', async () => {
     const l = await prisma.learner.findFirstOrThrow();
     expect((await (await asUser('eps.math@equaart.local')).get(`/reports/learner?learnerId=${l.id}`)).status).toBe(403);

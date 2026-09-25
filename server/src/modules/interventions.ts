@@ -86,6 +86,11 @@ async function addLearners(req: Request, interventionId: number, i: { learningAr
   return added;
 }
 
+/** What a reassessment of a non-competency gap must be recorded in (same instrument as the baseline). */
+function instrumentOf(model: { assessmentType: { name: string; resultMode: string }; bands: { descriptorKey: string | null; label: string }[] }) {
+  return { name: model.assessmentType.name, mode: model.assessmentType.resultMode, levels: model.bands.map((b) => ({ key: b.descriptorKey, label: b.label })) };
+}
+
 // ───────────── List / create / update ─────────────
 interventionsRouter.get('/', requirePermission('intervention:read'), ah(async (req, res) => {
   const s = req.scope!;
@@ -215,7 +220,11 @@ interventionsRouter.get('/:id', requirePermission('intervention:read'), ah(async
   const [learners, sessions] = await Promise.all([
     prisma.interventionLearner.findMany({
       where: { interventionId: i.id },
-      include: { learner: true, reassessments: { include: { band: true }, orderBy: { date: 'asc' } }, learningGap: { include: { competency: true } } },
+      include: {
+        learner: true,
+        reassessments: { include: { band: true }, orderBy: { date: 'asc' } },
+        learningGap: { include: { competency: true, assessmentResult: { include: { assessment: { include: { model: { include: { bands: { orderBy: { sortOrder: 'asc' } }, assessmentType: true } } } } } } } },
+      },
       orderBy: [{ learner: { lastName: 'asc' } }],
     }),
     prisma.interventionSession.findMany({ where: { interventionId: i.id }, include: { attendance: true }, orderBy: { date: 'asc' } }),
@@ -231,6 +240,7 @@ interventionsRouter.get('/:id', requirePermission('intervention:read'), ah(async
       learner: s.learnerLevel ? { id: l.learner.id, lrn: l.learner.lrn, name: learnerName(l.learner) } : { id: null, lrn: null, name: `Learner ${idx + 1}` },
       entryReason: s.learnerLevel ? l.entryReason : null,
       gap: l.learningGap ? { id: l.learningGap.id, status: l.learningGap.status, competency: l.learningGap.competency } : null,
+      instrument: l.learningGap && !l.learningGap.competencyId ? instrumentOf(l.learningGap.assessmentResult.assessment.model) : null,
       pre: { percentage: l.prePercentage, tier: l.preTier, band: preBand?.label ?? null },
       reassessments: s.learnerLevel ? l.reassessments : [],
       post: post ? { percentage: post.percentage, tier: post.tier, band: post.band?.label ?? null, date: post.date } : null,
@@ -405,9 +415,7 @@ interventionsRouter.get('/queue/reassessment', requirePermission('intervention:r
     learner: s.learnerLevel ? { id: r.learner.id, lrn: r.learner.lrn, name: learnerName(r.learner) } : { id: null, lrn: null, name: `Learner ${idx + 1}` },
     pre: { percentage: r.prePercentage, tier: r.preTier },
     competency: r.learningGap?.competency ?? null,
-    instrument: r.learningGap && !r.learningGap.competencyId
-      ? { name: r.learningGap.assessmentResult.assessment.model.assessmentType.name, mode: r.learningGap.assessmentResult.assessment.model.assessmentType.resultMode, levels: r.learningGap.assessmentResult.assessment.model.bands.map((b) => ({ key: b.descriptorKey, label: b.label })) }
-      : null,
+    instrument: r.learningGap && !r.learningGap.competencyId ? instrumentOf(r.learningGap.assessmentResult.assessment.model) : null,
     due: r.intervention.reassessmentDate,
     overdue: !!r.intervention.reassessmentDate && r.intervention.reassessmentDate < new Date(),
   })));

@@ -362,6 +362,8 @@ export async function buildReport(s: DataScope, type: ReportType, f: A.Filters, 
 }
 
 // ───────────── Renderers ─────────────
+/** Neutralise spreadsheet formula injection in exported text cells. */
+const safe = (v: string) => (/^[=+\-@\t\r]/.test(v) ? `'${v}` : v);
 const fmt = (v: unknown, c: Column) => (v === null || v === undefined || v === '' ? '' : c.type === 'percent' && typeof v === 'number' ? `${v}` : String(v));
 
 function toCsv(r: Report) {
@@ -369,7 +371,7 @@ function toCsv(r: Report) {
   for (const s of r.sections) {
     lines.push([s.heading]);
     lines.push(s.columns.map((c) => c.label));
-    for (const row of s.rows) lines.push(s.columns.map((c) => fmt(row[c.key], c)));
+    for (const row of s.rows) lines.push(s.columns.map((c) => (typeof row[c.key] === 'string' ? safe(fmt(row[c.key], c)) : fmt(row[c.key], c))));
     lines.push([]);
   }
   return '﻿' + stringify(lines);
@@ -391,7 +393,7 @@ async function toXlsx(r: Report) {
     const header = ws.addRow(s.columns.map((c) => c.label));
     header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     header.eachCell((cell) => (cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } }));
-    for (const row of s.rows) ws.addRow(s.columns.map((c) => (row[c.key] === undefined ? null : (row[c.key] as Cell))));
+    for (const row of s.rows) ws.addRow(s.columns.map((c) => (row[c.key] === undefined ? null : typeof row[c.key] === 'string' ? safe(row[c.key] as string) : (row[c.key] as Cell))));
     s.columns.forEach((c, i) => (ws.getColumn(i + 1).width = Math.min(60, Math.max(10, c.label.length + 2, ...s.rows.map((row) => String(row[c.key] ?? '').length + 2)))));
     if (r.containsPersonalData) ws.addRow([]).getCell(1).value = 'CONFIDENTIAL — contains personal information protected under the Data Privacy Act of 2012 (RA 10173).';
   }
