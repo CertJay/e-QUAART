@@ -7,3 +7,7 @@ coverage/
 *.log
 .DS_Store
 server/exports/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

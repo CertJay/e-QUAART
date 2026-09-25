@@ -53,7 +53,7 @@ usersRouter.get('/', ah(async (req, res) => {
     role: q.role,
     isActive: q.isActive ? q.isActive === 'true' : undefined,
     scopes: q.schoolId ? { some: { schoolId: q.schoolId } } : undefined,
-    OR: q.search ? [{ fullName: { contains: q.search, mode: 'insensitive' } }, { email: { contains: q.search, mode: 'insensitive' } }] : undefined,
+    OR: q.search ? [{ fullName: { contains: q.search } }, { email: { contains: q.search } }] : undefined,
   };
   const [total, rows] = await Promise.all([
     prisma.user.count({ where }),

@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -66,6 +69,14 @@ export function createApp() {
   api.use((_req, _res, next) => next(notFound('Endpoint')));
 
   app.use('/api/v1', api);
+
+  // After `npm run build`, serve the web client from the same process and port, so a single
+  // `npm start` is enough on a laptop or small school server (no nginx needed).
+  const webDist = join(dirname(fileURLToPath(import.meta.url)), '../../client/dist');
+  if (existsSync(join(webDist, 'index.html'))) {
+    app.use(express.static(webDist, { index: false, maxAge: '1h' }));
+    app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(join(webDist, 'index.html')));
+  }
   app.use(errorHandler);
   return app;
 }

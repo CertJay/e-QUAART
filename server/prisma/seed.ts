@@ -15,6 +15,7 @@ import { PrismaClient, type Prisma, type ResultMode, type Tier } from '@prisma/c
 import { hashPassword } from '../src/auth/password.js';
 import { classify, competencyTier, isMastered, round2 } from '../src/domain/classification.js';
 import { syncLearningGaps } from '../src/modules/gaps.service.js';
+import { tuneSqlite } from '../src/db.js';
 
 const prisma = new PrismaClient();
 export const DEMO_PASSWORD = 'Equaart#2026';
@@ -98,8 +99,11 @@ const LAST = ['Santos', 'Reyes', 'Cruz', 'Bautista', 'Ocampo', 'Garcia', 'Mendoz
 const MIDDLE = ['Santos', 'Reyes', 'Cruz', 'Lim', 'Tan', 'Go', 'Yap', 'Sy', 'Uy', 'Chua', 'Morales', 'Ignacio'];
 
 async function wipe() {
-  const tables = await prisma.$queryRaw<{ tablename: string }[]>`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`;
-  if (tables.length) await prisma.$executeRawUnsafe(`TRUNCATE ${tables.map((t) => `"${t.tablename}"`).join(', ')} RESTART IDENTITY CASCADE`);
+  const tables = await prisma.$queryRaw<{ name: string }[]>`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> '_prisma_migrations'`;
+  await prisma.$executeRawUnsafe('PRAGMA foreign_keys = OFF');
+  for (const t of tables) await prisma.$executeRawUnsafe(`DELETE FROM "${t.name}"`);
+  await prisma.$executeRawUnsafe(`DELETE FROM sqlite_sequence`).catch(() => undefined);
+  await prisma.$executeRawUnsafe('PRAGMA foreign_keys = ON');
 }
 
 interface BandSeed { label: string; tier: Tier; minPct?: number; maxPct?: number; descriptorKey?: string; description?: string; color: string; sortOrder: number }
@@ -117,6 +121,7 @@ export async function seed() {
     throw new Error('Refusing to wipe and seed a production database without --force');
   }
   const t0 = Date.now();
+  await tuneSqlite(prisma);
   await wipe();
 
   // Calendar

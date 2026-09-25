@@ -111,7 +111,7 @@ export function DistributionCard({ filters, onSelect, title = 'Performance level
   );
 }
 
-const TIER_NAMES = { TIER_1: 'Tier 1 · meets standard', TIER_2: 'Tier 2 · targeted', TIER_3: 'Tier 3 · intensive' } as const;
+const TIER_NAMES = { TIER_1: 'Tier 1 (meets)', TIER_2: 'Tier 2 (targeted)', TIER_3: 'Tier 3 (intensive)' } as const;
 function collapseToTiers(bands: Summary['distribution']): Summary['distribution'] {
   return (['TIER_1', 'TIER_2', 'TIER_3'] as const)
     .map((t) => ({ label: TIER_NAMES[t], tier: t, color: `var(--tier-${t.slice(-1)})`, count: bands.filter((b) => b.tier === t).reduce((s, b) => s + b.count, 0) }))

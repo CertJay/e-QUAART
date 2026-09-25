@@ -47,7 +47,7 @@ governanceRouter.get('/audit-logs', requirePermission('audit:read'), ah(async (r
     action: q.action,
     userId: q.userId,
     at: q.from || q.to ? { gte: q.from, lte: q.to } : undefined,
-    userEmail: q.search ? { contains: q.search, mode: 'insensitive' } : undefined,
+    userEmail: q.search ? { contains: q.search } : undefined,
   };
   const [total, rows] = await Promise.all([
     prisma.auditLog.count({ where }),

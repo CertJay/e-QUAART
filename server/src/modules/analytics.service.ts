@@ -69,9 +69,9 @@ function factsCte(scope: DataScope, f: Filters): Prisma.Sql {
   c.push(f.verifiedOnly === 'true' ? Prisma.sql`a.status = 'VERIFIED'` : Prisma.sql`a.status IN ('SUBMITTED','VERIFIED')`);
   c.push(Prisma.sql`r."isAbsent" = false AND r.tier IS NOT NULL`);
   if (f.bandId) c.push(Prisma.sql`r."bandId" = ${f.bandId}`);
-  if (f.tier) c.push(Prisma.sql`r.tier = ${f.tier}::"Tier"`);
+  if (f.tier) c.push(Prisma.sql`r.tier = ${f.tier}`);
   return Prisma.sql`
-    SELECT r.id AS result_id, r."learnerId" AS learner_id, r.percentage AS pct, r.tier::text AS tier, r."bandId" AS band_id,
+    SELECT r.id AS result_id, r."learnerId" AS learner_id, r.percentage AS pct, r.tier AS tier, r."bandId" AS band_id,
            a.id AS assessment_id, a."schoolId" AS school_id, s."districtId" AS district_id, a."sectionId" AS section_id,
            a."gradeLevelId" AS grade_level_id, g."keyStageId" AS key_stage_id, a."learningAreaId" AS learning_area_id,
            a."assessmentTypeId" AS assessment_type_id, a."schoolYearId" AS school_year_id, a."termId" AS term_id
@@ -233,7 +233,7 @@ export async function completion(scope: DataScope, f: Filters, dim?: Dim) {
   const col = dim ? Prisma.raw(`x.${DIMENSIONS[dim]}`) : null;
   const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
     WITH x AS (
-      SELECT a.id, a.status::text AS status, a."schoolId" AS school_id, s."districtId" AS district_id, a."sectionId" AS section_id,
+      SELECT a.id, a.status AS status, a."schoolId" AS school_id, s."districtId" AS district_id, a."sectionId" AS section_id,
              a."gradeLevelId" AS grade_level_id, g."keyStageId" AS key_stage_id, a."learningAreaId" AS learning_area_id,
              a."assessmentTypeId" AS assessment_type_id, a."schoolYearId" AS school_year_id, a."termId" AS term_id,
              (SELECT COUNT(*) FROM "AssessmentResult" r WHERE r."assessmentId" = a.id) AS encoded,
@@ -247,7 +247,7 @@ export async function completion(scope: DataScope, f: Filters, dim?: Dim) {
       COUNT(*) FILTER (WHERE x.status = 'SUBMITTED') AS submitted,
       COUNT(*) FILTER (WHERE x.status = 'VERIFIED') AS verified,
       COUNT(*) FILTER (WHERE x.status = 'RETURNED') AS returned,
-      SUM(LEAST(x.encoded, x.enrolled)) AS encoded,
+      SUM(MIN(x.encoded, x.enrolled)) AS encoded,
       SUM(x.enrolled) AS enrolled
     FROM x ${col ? Prisma.sql`GROUP BY ${col}` : Prisma.empty}`;
   return rows.map((r) => ({

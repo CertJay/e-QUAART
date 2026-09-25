@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config';
 
-const TEST_DB = process.env.TEST_DATABASE_URL ?? 'postgresql://equaart:equaart@localhost:5432/equaart_test';
+const TEST_DB = process.env.TEST_DATABASE_URL ?? 'file:./test.db';
 
 export default defineConfig({
   test: {

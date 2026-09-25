@@ -64,7 +64,7 @@ learnersRouter.get('/', requirePermission('learner:read'), ah(async (req, res) =
       q.status ? { status: q.status } : {},
       q.sectionId || q.schoolYearId ? { enrolments: { some: { sectionId: q.sectionId, schoolYearId: q.schoolYearId, isCurrent: true } } } : {},
       q.search
-        ? { OR: [{ lrn: { contains: normalizeLrn(q.search) || q.search } }, { lastName: { contains: q.search, mode: 'insensitive' } }, { firstName: { contains: q.search, mode: 'insensitive' } }] }
+        ? { OR: [{ lrn: { contains: normalizeLrn(q.search) || q.search } }, { lastName: { contains: q.search } }, { firstName: { contains: q.search } }] }
         : {},
     ],
   };

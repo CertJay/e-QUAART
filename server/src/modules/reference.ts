@@ -185,7 +185,7 @@ referenceRouter.get('/competencies', ah(async (req, res) => {
     where: {
       learningAreaId: q.learningAreaId,
       gradeLevelId: q.gradeLevelId,
-      ...(q.search ? { OR: [{ code: { contains: q.search, mode: 'insensitive' } }, { description: { contains: q.search, mode: 'insensitive' } }] } : {}),
+      ...(q.search ? { OR: [{ code: { contains: q.search } }, { description: { contains: q.search } }] } : {}),
     },
     include: { learningArea: { select: { code: true, name: true } }, gradeLevel: { select: { code: true, name: true } } },
     orderBy: [{ learningAreaId: 'asc' }, { gradeLevelId: 'asc' }, { code: 'asc' }],

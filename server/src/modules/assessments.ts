@@ -81,7 +81,7 @@ assessmentsRouter.get('/', requirePermission('assessment:read'), ah(async (req, 
   }).parse(req.query);
   const { search, ...filters } = q;
   const where: Prisma.AssessmentWhereInput = {
-    AND: [assessmentWhere(s), filters, search ? { title: { contains: search, mode: 'insensitive' } } : {}],
+    AND: [assessmentWhere(s), filters, search ? { title: { contains: search } } : {}],
   };
   const [total, rows] = await Promise.all([
     prisma.assessment.count({ where }),

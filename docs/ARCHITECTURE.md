@@ -3,7 +3,7 @@
 ## 1. Shape of the system
 
 ```
-Browser (React SPA) ──/api/v1──▶ Express API ──Prisma / SQL──▶ PostgreSQL
+Browser (React SPA) ──/api/v1──▶ Express API ──Prisma / SQL──▶ SQLite file (sqlite-local branch)
    │  access token in memory           │ authenticate → resolve data scope → permission check
    └─ httpOnly refresh cookie          │ modules: reference · learners · sections · assessments
                                        │          analytics · gaps · interventions · reports
@@ -130,7 +130,15 @@ Dimensions: `district, school, keyStage, gradeLevel, section, learningArea, asse
 
 ## 9. Operations
 
-- **Backups**: nightly `pg_dump -Fc`, with copies kept off-site and encrypted. Test a restore every term. Enable encryption at rest on the database volume.
+**This branch uses SQLite** (`server/prisma/equaart.db`).
+- **Settings:** WAL journal, 10-second busy timeout, and foreign keys on (`src/db.ts`).
+- **Performance:** analytic SQL is portable (aggregate `FILTER`, scalar `MIN`), so the same queries and tests run unchanged. On the demo data queries take well under 100 ms.
+- **Concurrency:** SQLite allows one writer at a time. That suits a school or a laptop. For division-wide concurrent encoding, use the PostgreSQL branch.
+- **Backups:** stop the app and copy the `.db` file (and its `-wal` file).
+
+
+
+- **Backups (PostgreSQL branch)**: nightly `pg_dump -Fc`, with copies kept off-site and encrypted. Test a restore every term. Enable encryption at rest on the database volume.
 - **Migrations**: `npm run db:migrate` (`prisma migrate deploy`). Schema changes go through `prisma migrate dev` in development.
 - **Performance**: analytics are single SQL aggregations over indexed columns. On the demo data every dashboard query takes about 20–250 ms. At full division scale, add materialized views if a query exceeds 2 seconds.
 - **Retention disposal** is a documented manual procedure for now (export → DPO approval → anonymize or delete). The rules are stored in `RetentionPolicy`.

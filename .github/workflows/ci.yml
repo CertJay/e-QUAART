@@ -5,21 +5,13 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: equaart
-          POSTGRES_PASSWORD: equaart
-          POSTGRES_DB: equaart_test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U equaart" --health-interval 5s --health-retries 10
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     env:
-      TEST_DATABASE_URL: postgresql://equaart:equaart@localhost:5432/equaart_test
-      DATABASE_URL: postgresql://equaart:equaart@localhost:5432/equaart_test
       JWT_SECRET: ci-only-secret-ci-only-secret-ci-only-secret
+      DATABASE_URL: file:./ci.db
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

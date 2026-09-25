@@ -90,7 +90,7 @@ function PeriodPicker() {
     <div className="flex items-center gap-2">
       <Select
         aria-label="School year"
-        className="h-8 w-32 text-xs"
+        className="h-8 w-36 text-xs"
         value={p.schoolYearId ?? ''}
         onChange={(e) => {
           p.setSchoolYearId(e.target.value ? Number(e.target.value) : undefined);
