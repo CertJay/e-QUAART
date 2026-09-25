@@ -1,0 +1,726 @@
+// E-QuAART data model
+//
+// Hierarchy (data-scoping spine):
+//   Division → District → School → SchoolYear/Term → KeyStage → GradeLevel → Section → Learner
+//   → LearningArea → Assessment → Competency → Score/Performance → LearningGap → Intervention
+//   → Reassessment → Improvement result
+//
+// Classification thresholds, performance levels, descriptors and competencies are all data,
+// never code: see ClassificationModel / ClassificationBand / Competency.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────── Enums ───────────────────────────────
+
+enum Role {
+  TEACHER
+  MASTER_TEACHER
+  ASSESSMENT_COORDINATOR
+  PRINCIPAL
+  PSDS
+  EPS
+  CHIEF_CID
+  DIVISION_ADMIN
+  SYSTEM_ADMIN
+  DPO
+}
+
+enum ScopeType {
+  DIVISION
+  DISTRICT
+  SCHOOL
+  SECTION
+  LEARNING_AREA
+}
+
+enum ResultMode {
+  PERCENTAGE // score ÷ max score → percentage bands
+  PROFILE // instrument-specific descriptor (CRLA, Phil-IRI, …)
+}
+
+enum Tier {
+  TIER_1 // meets expected standard / enrichment
+  TIER_2 // targeted support
+  TIER_3 // intensive support
+}
+
+enum AssessmentStatus {
+  DRAFT
+  SUBMITTED
+  VERIFIED
+  RETURNED
+}
+
+enum LearnerStatus {
+  ACTIVE
+  TRANSFERRED_OUT
+  DROPPED
+  GRADUATED
+}
+
+enum Sex {
+  MALE
+  FEMALE
+}
+
+enum GapStatus {
+  OPEN
+  IN_INTERVENTION
+  RESOLVED
+}
+
+enum InterventionStatus {
+  IDENTIFIED
+  PLANNED
+  ONGOING
+  COMPLETED
+  FOR_MONITORING
+  REASSESSMENT_REQUIRED
+}
+
+enum InterventionType {
+  ENRICHMENT
+  TARGETED
+  INTENSIVE
+}
+
+enum InterventionDecision {
+  CONTINUE
+  MODIFY
+  COMPLETE
+  REPEAT
+  REFER
+}
+
+enum IlmpStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+}
+
+enum BreachStatus {
+  OPEN
+  CONTAINED
+  NOTIFIED
+  CLOSED
+}
+
+// ───────────────────────── Organization ─────────────────────────
+
+model Division {
+  id         Int         @id @default(autoincrement())
+  code       String      @unique
+  name       String
+  regionName String?
+  districts  District[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  scopes     UserScope[]
+}
+
+model District {
+  id         Int         @id @default(autoincrement())
+  name       String
+  divisionId Int
+  division   Division    @relation(fields: [divisionId], references: [id])
+  schools    School[]
+  scopes     UserScope[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([divisionId, name])
+}
+
+model School {
+  id            Int            @id @default(autoincrement())
+  schoolIdDeped String         @unique
+  name          String
+  districtId    Int
+  district      District       @relation(fields: [districtId], references: [id])
+  address       String?
+  schoolType    String? // ELEMENTARY | SECONDARY | INTEGRATED
+  isActive      Boolean        @default(true)
+  sections      Section[]
+  assessments   Assessment[]
+  interventions Intervention[]
+  scopes        UserScope[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([districtId])
+}
+
+// ─────────────────────── Calendar & curriculum ───────────────────────
+
+model SchoolYear {
+  id          Int          @id @default(autoincrement())
+  label       String       @unique // e.g. "2025-2026"
+  startDate   DateTime
+  endDate     DateTime
+  isCurrent   Boolean      @default(false)
+  terms       Term[]
+  sections    Section[]
+  enrolments  Enrolment[]
+  assessments Assessment[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Term {
+  id           Int          @id @default(autoincrement())
+  schoolYearId Int
+  schoolYear   SchoolYear   @relation(fields: [schoolYearId], references: [id])
+  code         String // Q1..Q4, BOSY, MOSY, EOSY
+  name         String
+  sortOrder    Int
+  startDate    DateTime?
+  endDate      DateTime?
+  assessments  Assessment[]
+
+  @@unique([schoolYearId, code])
+}
+
+model KeyStage {
+  id          Int          @id @default(autoincrement())
+  code        String       @unique
+  name        String
+  sortOrder   Int
+  gradeLevels GradeLevel[]
+}
+
+model GradeLevel {
+  id           Int          @id @default(autoincrement())
+  code         String       @unique // K, G1 … G12
+  name         String
+  sortOrder    Int
+  keyStageId   Int
+  keyStage     KeyStage     @relation(fields: [keyStageId], references: [id])
+  isActive     Boolean      @default(true)
+  sections     Section[]
+  competencies Competency[]
+  assessments  Assessment[]
+}
+
+model LearningArea {
+  id              Int              @id @default(autoincrement())
+  code            String           @unique
+  name            String
+  sortOrder       Int              @default(0)
+  isActive        Boolean          @default(true)
+  competencies    Competency[]
+  assessments     Assessment[]
+  interventions   Intervention[]
+  sectionTeachers SectionTeacher[]
+  ilmps           Ilmp[]
+  scopes          UserScope[]
+}
+
+model Competency {
+  id              Int                      @id @default(autoincrement())
+  learningAreaId  Int
+  learningArea    LearningArea             @relation(fields: [learningAreaId], references: [id])
+  gradeLevelId    Int
+  gradeLevel      GradeLevel               @relation(fields: [gradeLevelId], references: [id])
+  code            String
+  description     String
+  curriculum      String                   @default("MATATAG") // MELC | MATATAG | OTHER
+  isActive        Boolean                  @default(true)
+  assessmentLinks AssessmentCompetency[]
+  results         CompetencyResult[]
+  gaps            LearningGap[]
+  interventions   InterventionCompetency[]
+
+  @@unique([learningAreaId, gradeLevelId, code])
+}
+
+// ─────────────────────────── Classes & learners ───────────────────────────
+
+model Section {
+  id            Int              @id @default(autoincrement())
+  name          String
+  schoolId      Int
+  school        School           @relation(fields: [schoolId], references: [id])
+  gradeLevelId  Int
+  gradeLevel    GradeLevel       @relation(fields: [gradeLevelId], references: [id])
+  schoolYearId  Int
+  schoolYear    SchoolYear       @relation(fields: [schoolYearId], references: [id])
+  adviserId     Int?
+  adviser       User?            @relation("SectionAdviser", fields: [adviserId], references: [id])
+  teachers      SectionTeacher[]
+  enrolments    Enrolment[]
+  assessments   Assessment[]
+  interventions Intervention[]
+  scopes        UserScope[]
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@unique([schoolId, schoolYearId, gradeLevelId, name])
+  @@index([schoolYearId])
+}
+
+model SectionTeacher {
+  id             Int           @id @default(autoincrement())
+  sectionId      Int
+  section        Section       @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  userId         Int
+  user           User          @relation(fields: [userId], references: [id])
+  learningAreaId Int?
+  learningArea   LearningArea? @relation(fields: [learningAreaId], references: [id])
+
+  @@unique([sectionId, userId, learningAreaId])
+}
+
+model Learner {
+  id            Int                   @id @default(autoincrement())
+  lrn           String                @unique // Learner Reference Number (12 digits)
+  firstName     String
+  middleName    String?
+  lastName      String
+  extensionName String?
+  sex           Sex
+  birthdate     DateTime?
+  status        LearnerStatus         @default(ACTIVE)
+  enrolments    Enrolment[]
+  results       AssessmentResult[]
+  gaps          LearningGap[]
+  interventions InterventionLearner[]
+  attendance    AttendanceRecord[]
+  ilmps         Ilmp[]
+  createdById   Int?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  deletedAt     DateTime?
+
+  @@index([lastName, firstName])
+}
+
+model Enrolment {
+  id           Int        @id @default(autoincrement())
+  learnerId    Int
+  learner      Learner    @relation(fields: [learnerId], references: [id])
+  sectionId    Int
+  section      Section    @relation(fields: [sectionId], references: [id])
+  schoolYearId Int
+  schoolYear   SchoolYear @relation(fields: [schoolYearId], references: [id])
+  dateEnrolled DateTime   @default(now())
+  isCurrent    Boolean    @default(true)
+  endedAt      DateTime?
+  endReason    String?
+
+  @@index([learnerId])
+  @@index([sectionId, isCurrent])
+}
+
+// ─────────────────────────── Assessment configuration ───────────────────────────
+
+model AssessmentType {
+  id          Int                   @id @default(autoincrement())
+  code        String                @unique // CRLA, PHIL_IRI, RMA, ELLNA, QUARTERLY, SBA …
+  name        String
+  description String?
+  resultMode  ResultMode
+  isActive    Boolean               @default(true)
+  models      ClassificationModel[]
+  assessments Assessment[]
+}
+
+model ClassificationModel {
+  id                    Int                  @id @default(autoincrement())
+  assessmentTypeId      Int
+  assessmentType        AssessmentType       @relation(fields: [assessmentTypeId], references: [id])
+  name                  String
+  version               String               @default("1")
+  effectiveSchoolYearId Int?
+  masteryThreshold      Float                @default(0.75) // competency mastery cut-off (0–1)
+  isActive              Boolean              @default(true)
+  isProvisional         Boolean              @default(false) // true = seeded, confirm against current issuance
+  notes                 String?
+  bands                 ClassificationBand[]
+  assessments           Assessment[]
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+}
+
+model ClassificationBand {
+  id            Int                 @id @default(autoincrement())
+  modelId       Int
+  model         ClassificationModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  label         String
+  tier          Tier
+  minPct        Float? // percentage mode: inclusive lower bound
+  maxPct        Float? // percentage mode: upper bound (display/validation)
+  descriptorKey String? // profile mode: descriptor encoded by the teacher
+  description   String?
+  color         String              @default("#64748b")
+  sortOrder     Int                 @default(0) // 1 = highest performance level
+  results       AssessmentResult[]
+  reassessments Reassessment[]
+}
+
+// ─────────────────────────── Assessments & results ───────────────────────────
+
+model Assessment {
+  id               Int                    @id @default(autoincrement())
+  title            String
+  assessmentTypeId Int
+  assessmentType   AssessmentType         @relation(fields: [assessmentTypeId], references: [id])
+  modelId          Int
+  model            ClassificationModel    @relation(fields: [modelId], references: [id])
+  schoolYearId     Int
+  schoolYear       SchoolYear             @relation(fields: [schoolYearId], references: [id])
+  termId           Int
+  term             Term                   @relation(fields: [termId], references: [id])
+  gradeLevelId     Int
+  gradeLevel       GradeLevel             @relation(fields: [gradeLevelId], references: [id])
+  learningAreaId   Int
+  learningArea     LearningArea           @relation(fields: [learningAreaId], references: [id])
+  schoolId         Int
+  school           School                 @relation(fields: [schoolId], references: [id])
+  sectionId        Int
+  section          Section                @relation(fields: [sectionId], references: [id])
+  assessmentDate   DateTime?
+  maxScore         Float?
+  windowOpen       DateTime?
+  windowClose      DateTime?
+  status           AssessmentStatus       @default(DRAFT)
+  returnReason     String?
+  createdById      Int
+  createdBy        User                   @relation("AssessmentCreatedBy", fields: [createdById], references: [id])
+  submittedById    Int?
+  submittedAt      DateTime?
+  verifiedById     Int?
+  verifiedBy       User?                  @relation("AssessmentVerifiedBy", fields: [verifiedById], references: [id])
+  verifiedAt       DateTime?
+  competencies     AssessmentCompetency[]
+  results          AssessmentResult[]
+  interventions    Intervention[]
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  deletedAt        DateTime?
+
+  @@index([schoolId, schoolYearId, termId])
+  @@index([sectionId])
+  @@index([learningAreaId])
+}
+
+// "Assessment items" grouped by the competency they measure.
+model AssessmentCompetency {
+  id           Int        @id @default(autoincrement())
+  assessmentId Int
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  competencyId Int
+  competency   Competency @relation(fields: [competencyId], references: [id])
+  itemsTotal   Int
+
+  @@unique([assessmentId, competencyId])
+}
+
+model AssessmentResult {
+  id                Int                 @id @default(autoincrement())
+  assessmentId      Int
+  assessment        Assessment          @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  learnerId         Int
+  learner           Learner             @relation(fields: [learnerId], references: [id])
+  rawScore          Float?
+  percentage        Float?
+  profileDescriptor String?
+  bandId            Int?
+  band              ClassificationBand? @relation(fields: [bandId], references: [id])
+  tier              Tier?
+  isAbsent          Boolean             @default(false)
+  remarks           String?
+  encodedById       Int
+  updatedById       Int?
+  competencyResults CompetencyResult[]
+  gaps              LearningGap[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@unique([assessmentId, learnerId])
+  @@index([learnerId])
+}
+
+model CompetencyResult {
+  id           Int              @id @default(autoincrement())
+  resultId     Int
+  result       AssessmentResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  competencyId Int
+  competency   Competency       @relation(fields: [competencyId], references: [id])
+  itemsCorrect Int
+  itemsTotal   Int
+  mastered     Boolean
+
+  @@unique([resultId, competencyId])
+  @@index([competencyId])
+}
+
+// ─────────────────────────── Learning gaps & interventions ───────────────────────────
+
+model LearningGap {
+  id                 Int                   @id @default(autoincrement())
+  learnerId          Int
+  learner            Learner               @relation(fields: [learnerId], references: [id])
+  assessmentResultId Int
+  assessmentResult   AssessmentResult      @relation(fields: [assessmentResultId], references: [id], onDelete: Cascade)
+  competencyId       Int? // null = learning-area / literacy-profile level gap
+  competency         Competency?           @relation(fields: [competencyId], references: [id])
+  learningAreaId     Int
+  schoolId           Int
+  sectionId          Int
+  schoolYearId       Int
+  termId             Int
+  severity           Tier
+  masteryPct         Float?
+  status             GapStatus             @default(OPEN)
+  resolvedAt         DateTime?
+  interventionLinks  InterventionLearner[]
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  @@index([learnerId])
+  @@index([schoolId, schoolYearId, termId])
+  @@index([competencyId])
+}
+
+model Intervention {
+  id                 Int                      @id @default(autoincrement())
+  title              String
+  schoolId           Int
+  school             School                   @relation(fields: [schoolId], references: [id])
+  sectionId          Int?
+  section            Section?                 @relation(fields: [sectionId], references: [id])
+  schoolYearId       Int
+  termId             Int?
+  learningAreaId     Int
+  learningArea       LearningArea             @relation(fields: [learningAreaId], references: [id])
+  sourceAssessmentId Int?
+  sourceAssessment   Assessment?              @relation(fields: [sourceAssessmentId], references: [id])
+  tier               Tier
+  type               InterventionType
+  strategy           String
+  description        String?
+  bannerProgram      String?
+  frequency          String?
+  startDate          DateTime?
+  targetEndDate      DateTime?
+  reassessmentDate   DateTime?
+  status             InterventionStatus       @default(PLANNED)
+  remarks            String?
+  ownerId            Int
+  owner              User                     @relation("InterventionOwner", fields: [ownerId], references: [id])
+  competencies       InterventionCompetency[]
+  learners           InterventionLearner[]
+  sessions           InterventionSession[]
+  createdById        Int
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  deletedAt          DateTime?
+
+  @@index([schoolId, schoolYearId])
+}
+
+model InterventionCompetency {
+  interventionId Int
+  intervention   Intervention @relation(fields: [interventionId], references: [id], onDelete: Cascade)
+  competencyId   Int
+  competency     Competency   @relation(fields: [competencyId], references: [id])
+
+  @@id([interventionId, competencyId])
+}
+
+model InterventionLearner {
+  id             Int                   @id @default(autoincrement())
+  interventionId Int
+  intervention   Intervention          @relation(fields: [interventionId], references: [id], onDelete: Cascade)
+  learnerId      Int
+  learner        Learner               @relation(fields: [learnerId], references: [id])
+  learningGapId  Int?
+  learningGap    LearningGap?          @relation(fields: [learningGapId], references: [id], onDelete: SetNull)
+  entryReason    String?
+  prePercentage  Float?
+  preBandId      Int?
+  preTier        Tier?
+  progressNote   String?
+  decision       InterventionDecision?
+  decidedAt      DateTime?
+  reassessments  Reassessment[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@unique([interventionId, learnerId])
+}
+
+model Reassessment {
+  id                    Int                 @id @default(autoincrement())
+  interventionLearnerId Int
+  interventionLearner   InterventionLearner @relation(fields: [interventionLearnerId], references: [id], onDelete: Cascade)
+  date                  DateTime
+  rawScore              Float?
+  maxScore              Float?
+  percentage            Float?
+  profileDescriptor     String?
+  bandId                Int?
+  band                  ClassificationBand? @relation(fields: [bandId], references: [id])
+  tier                  Tier?
+  notes                 String?
+  recordedById          Int
+  createdAt             DateTime            @default(now())
+}
+
+model InterventionSession {
+  id             Int                @id @default(autoincrement())
+  interventionId Int
+  intervention   Intervention       @relation(fields: [interventionId], references: [id], onDelete: Cascade)
+  date           DateTime
+  topic          String
+  notes          String?
+  facilitatorId  Int?
+  attendance     AttendanceRecord[]
+  createdAt      DateTime           @default(now())
+}
+
+model AttendanceRecord {
+  id        Int                 @id @default(autoincrement())
+  sessionId Int
+  session   InterventionSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  learnerId Int
+  learner   Learner             @relation(fields: [learnerId], references: [id])
+  present   Boolean
+
+  @@unique([sessionId, learnerId])
+}
+
+// Individual Learning Monitoring Plan (typically for Tier 3 learners)
+model Ilmp {
+  id              Int          @id @default(autoincrement())
+  learnerId       Int
+  learner         Learner      @relation(fields: [learnerId], references: [id])
+  learningAreaId  Int
+  learningArea    LearningArea @relation(fields: [learningAreaId], references: [id])
+  schoolYearId    Int
+  termId          Int?
+  identifiedGaps  String
+  strategies      String
+  monitoringNotes String?
+  status          IlmpStatus   @default(DRAFT)
+  createdById     Int
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+// ─────────────────────────── Users, sessions, governance ───────────────────────────
+
+model User {
+  id                  Int              @id @default(autoincrement())
+  email               String           @unique
+  passwordHash        String
+  fullName            String
+  position            String?
+  role                Role
+  isActive            Boolean          @default(true)
+  mustChangePassword  Boolean          @default(true)
+  failedLoginCount    Int              @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  privacyAcceptedAt   DateTime?
+  passwordChangedAt   DateTime?
+  scopes              UserScope[]
+  sessions            UserSession[]
+  advisorySections    Section[]        @relation("SectionAdviser")
+  teachingAssignments SectionTeacher[]
+  assessmentsCreated  Assessment[]     @relation("AssessmentCreatedBy")
+  assessmentsVerified Assessment[]     @relation("AssessmentVerifiedBy")
+  interventionsOwned  Intervention[]   @relation("InterventionOwner")
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+}
+
+model UserScope {
+  id             Int           @id @default(autoincrement())
+  userId         Int
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scopeType      ScopeType
+  divisionId     Int?
+  division       Division?     @relation(fields: [divisionId], references: [id])
+  districtId     Int?
+  district       District?     @relation(fields: [districtId], references: [id])
+  schoolId       Int?
+  school         School?       @relation(fields: [schoolId], references: [id])
+  sectionId      Int?
+  section        Section?      @relation(fields: [sectionId], references: [id])
+  learningAreaId Int?
+  learningArea   LearningArea? @relation(fields: [learningAreaId], references: [id])
+
+  @@index([userId])
+}
+
+model UserSession {
+  id               Int       @id @default(autoincrement())
+  userId           Int
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String    @unique
+  createdAt        DateTime  @default(now())
+  lastUsedAt       DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  ip               String?
+  userAgent        String?
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?
+  userEmail  String?
+  action     String // CREATE | UPDATE | DELETE | SUBMIT | VERIFY | RETURN | REOPEN | EXPORT | IMPORT | LOGIN …
+  entity     String
+  entityId   String?
+  beforeJson Json?
+  afterJson  Json?
+  ip         String?
+  userAgent  String?
+  at         DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([at])
+}
+
+model SystemSetting {
+  key         String   @id
+  value       Json
+  description String?
+  updatedById Int?
+  updatedAt   DateTime @updatedAt
+}
+
+model RetentionPolicy {
+  id              Int      @id @default(autoincrement())
+  entity          String   @unique
+  retentionMonths Int
+  disposalAction  String // ANONYMIZE | DELETE | ARCHIVE
+  legalBasis      String
+  updatedAt       DateTime @updatedAt
+}
+
+model BreachIncident {
+  id              Int          @id @default(autoincrement())
+  title           String
+  description     String
+  discoveredAt    DateTime
+  affectedRecords Int?
+  status          BreachStatus @default(OPEN)
+  npcNotifiedAt   DateTime?
+  actionsTaken    String?
+  createdById     Int
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
