@@ -531,7 +531,7 @@ export async function seed() {
   console.log(`Demo password for every account: ${DEMO_PASSWORD}`);
 }
 
-const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop()!);
+const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split(/[/\\]/).pop()!);
 if (isMain) {
   seed()
     .catch((e) => {
