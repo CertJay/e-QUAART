@@ -9,7 +9,7 @@ Assessment → Data capture → Quality assurance → Analysis → Learning gaps
    → Intervention → Monitoring → Reassessment → Evidence of improvement
 ```
 
-It pulls together results from CRLA, Phil-IRI, RMA, ELLNA, quarterly/end-of-term and school-based assessments. It classifies each result using configurable, instrument-specific performance levels. It then finds learning gaps for individual learners, classes, schools and the division, and tracks the interventions planned from those gaps until reassessment shows whether they worked.
+It pulls together results from CRLA, Phil-IRI, RMA, ELLNA, end-of-term examinations (DepEd three-term calendar) and school-based assessments. It classifies each result using configurable, instrument-specific performance levels. It then finds learning gaps for individual learners, classes, schools and the division, and tracks the interventions planned from those gaps until reassessment shows whether they worked.
 
 It is **not** an exam-delivery platform, a grading system of record, or a replacement for LIS/EBEIS. The LRN is used as the learner identifier.
 
@@ -93,7 +93,7 @@ npm run build
 The server integration tests use a separate SQLite file (`TEST_DATABASE_URL`, default `file:./test.db`), which is re-created and seeded on every run.
 
 The tests cover the MVP acceptance criteria in the build spec, including:
-- quarterly tiers are computed from the configured bands;
+- term-examination tiers are computed from the configured bands;
 - CRLA "Full Refresher" is classified Tier 3 with no percentage rule;
 - verified results are locked, and every edit is audit-logged;
 - a mismatched scope gets 403/404;
@@ -130,7 +130,7 @@ docs/     architecture, data model, RBAC, metrics, spec traceability
 
 ## Important: validate before production use
 
-- **Performance levels are seed data and are flagged *provisional*.** This covers the quarterly bands, CRLA, Phil-IRI, RMA and ELLNA descriptors and cut-offs. The RMA descriptors in particular are placeholders. Confirm them against the current DepEd / Region IV-A / SDO issuances under **Assessment standards**. Saving a change re-classifies existing results and is audit-logged.
+- **Performance levels are seed data and are flagged *provisional*.** This covers the term-examination bands, CRLA, Phil-IRI, RMA and ELLNA descriptors and cut-offs. The RMA descriptors in particular are placeholders. Confirm them against the current DepEd / Region IV-A / SDO issuances under **Assessment standards**. Saving a change re-classifies existing results and is audit-logged.
 - **Competencies are illustrative.** Load the official MELC/MATATAG lists under **Curriculum**.
 - Retention periods, alert thresholds and the small-cell threshold are defaults. Agree them with the DPO and CID.
 

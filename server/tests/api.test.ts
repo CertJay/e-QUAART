@@ -157,7 +157,7 @@ describe('assessment workflow (acceptance criteria)', () => {
 
   it('rejects a duplicate assessment for the same class, term and learning area', async () => {
     const t = await asUser(TEACHER);
-    const existing = await prisma.assessment.findFirstOrThrow({ where: { sectionId: teacherSection.id, term: { code: 'Q1' }, schoolYearId: sy.id } });
+    const existing = await prisma.assessment.findFirstOrThrow({ where: { sectionId: teacherSection.id, term: { code: 'T1' }, schoolYearId: sy.id } });
     const res = await t.post('/assessments').send({
       assessmentTypeId: existing.assessmentTypeId, schoolYearId: sy.id, termId: existing.termId, sectionId: teacherSection.id, learningAreaId: existing.learningAreaId, maxScore: 40,
     });
@@ -166,11 +166,11 @@ describe('assessment workflow (acceptance criteria)', () => {
 
   it('lets a teacher encode a full section and computes each tier from the configured bands', async () => {
     const t = await asUser(TEACHER);
-    const quarterly = await prisma.assessmentType.findUniqueOrThrow({ where: { code: 'QUARTERLY' } });
+    const quarterly = await prisma.assessmentType.findUniqueOrThrow({ where: { code: 'TERM_EXAM' } });
     const eng = await prisma.learningArea.findUniqueOrThrow({ where: { code: 'ENG' } });
     const g3 = await prisma.gradeLevel.findUniqueOrThrow({ where: { code: 'G3' } });
     const comps = await prisma.competency.findMany({ where: { learningAreaId: eng.id, gradeLevelId: g3.id }, take: 2, orderBy: { code: 'asc' } });
-    const q2 = sy.terms.find((x) => x.code === 'Q2')!;
+    const q2 = sy.terms.find((x) => x.code === 'T2')!;
     const created = await t.post('/assessments').send({
       assessmentTypeId: quarterly.id, schoolYearId: sy.id, termId: q2.id, sectionId: teacherSection.id, learningAreaId: eng.id, maxScore: 20,
       competencies: comps.map((c) => ({ competencyId: c.id, itemsTotal: 10 })),
@@ -257,7 +257,7 @@ describe('assessment workflow (acceptance criteria)', () => {
 
   it('validates a results import (invalid LRN, duplicates, out-of-range, not enrolled)', async () => {
     const t = await asUser(TEACHER);
-    const draft = await prisma.assessment.findFirstOrThrow({ where: { sectionId: teacherSection.id, status: 'DRAFT', assessmentType: { code: 'QUARTERLY' } }, include: { competencies: { include: { competency: true } } } });
+    const draft = await prisma.assessment.findFirstOrThrow({ where: { sectionId: teacherSection.id, status: 'DRAFT', assessmentType: { code: 'TERM_EXAM' } }, include: { competencies: { include: { competency: true } } } });
     const tpl = await t.get(`/assessments/${draft.id}/template`);
     expect(tpl.status).toBe(200);
     expect(tpl.text.split('\n')[0]).toContain('comp:');
@@ -322,7 +322,7 @@ describe('analytics', () => {
 
   it('computes trends and heatmaps', async () => {
     const p = await asUser(PRINCIPAL);
-    const trend = await p.get('/analytics/trend?series=learningArea&assessmentTypeId=' + (await prisma.assessmentType.findUniqueOrThrow({ where: { code: 'QUARTERLY' } })).id);
+    const trend = await p.get('/analytics/trend?series=learningArea&assessmentTypeId=' + (await prisma.assessmentType.findUniqueOrThrow({ where: { code: 'TERM_EXAM' } })).id);
     expect(trend.body.terms.length).toBeGreaterThanOrEqual(5);
     const heat = await p.get(`/analytics/heatmap?rows=gradeLevel&cols=learningArea&schoolYearId=${sy.id}`);
     expect(heat.body.rows.length).toBe(6);
@@ -359,6 +359,17 @@ describe('interventions', () => {
 
     const dec = await t.put(`/interventions/${created.body.id}/learners/${member.id}`).send({ decision: 'COMPLETE' });
     expect(dec.status).toBe(200);
+  });
+
+  it('rejects an intervention whose competencies are from another learning area', async () => {
+    const t = await asUser(TEACHER);
+    const gap = await prisma.learningGap.findFirstOrThrow({ where: { sectionId: teacherSection.id, competencyId: { not: null }, schoolYearId: sy.id } });
+    const otherComp = await prisma.competency.findFirstOrThrow({ where: { learningAreaId: { not: gap.learningAreaId } } });
+    const res = await t.post('/interventions').send({
+      title: 'Mismatched remediation', sectionId: teacherSection.id, schoolYearId: sy.id, learningAreaId: gap.learningAreaId, tier: 'TIER_2',
+      strategy: 'Small-group instruction', competencyIds: [otherComp.id],
+    });
+    expect(res.status).toBe(400);
   });
 
   it('shows division roles anonymised intervention learners', async () => {

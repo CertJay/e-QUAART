@@ -23,7 +23,7 @@ const VIEWS: Record<string, View> = {
   'learning-areas': { title: 'Learning areas', subtitle: 'Performance by learning area across grade levels and schools.', school: ['learningArea', 'gradeLevel', 'section', 'assessment', 'learner'], division: ['learningArea', 'school', 'gradeLevel', 'assessment'] },
   'key-stages': { title: 'Key stages', subtitle: 'Performance by key stage, then grade level and learning area.', school: ['keyStage', 'gradeLevel', 'learningArea', 'section', 'learner'], division: ['keyStage', 'gradeLevel', 'learningArea', 'school'] },
   schools: { title: 'Schools', subtitle: 'School comparison (alphabetical — not a ranking), drilling into grade levels and learning areas.', school: ['gradeLevel', 'section', 'learningArea', 'assessment', 'learner'], division: ['school', 'gradeLevel', 'learningArea', 'assessment'] },
-  assessments: { title: 'Assessment analytics', subtitle: 'Performance by assessment instrument (CRLA, Phil-IRI, RMA, quarterly…).', school: ['assessmentType', 'learningArea', 'gradeLevel', 'assessment', 'learner'], division: ['assessmentType', 'learningArea', 'school', 'gradeLevel'] },
+  assessments: { title: 'Assessment analytics', subtitle: 'Performance by assessment instrument (CRLA, Phil-IRI, RMA, term examinations…).', school: ['assessmentType', 'learningArea', 'gradeLevel', 'assessment', 'learner'], division: ['assessmentType', 'learningArea', 'school', 'gradeLevel'] },
   division: { title: 'Division overview', subtitle: 'Division → district → school → grade level → learning area → assessment.', school: ['gradeLevel', 'learningArea'], division: ['district', 'school', 'gradeLevel', 'learningArea', 'assessment'] },
 };
 

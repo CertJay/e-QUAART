@@ -50,7 +50,7 @@ export function OrganizationPage() {
           <div className="flex justify-end"><Button size="sm" onClick={() => setEdit({
             title: 'New school year',
             fields: [{ key: 'label', label: 'Label (e.g. 2027-2028)' }, { key: 'startDate', label: 'Start', type: 'date' }, { key: 'endDate', label: 'End', type: 'date' }, { key: 'isCurrent', label: 'Make this the current school year', type: 'checkbox' }],
-            submit: (v) => api.post('/reference/school-years', { ...v, terms: [['BOSY', 'Beginning of School Year'], ['Q1', 'Quarter 1'], ['Q2', 'Quarter 2'], ['Q3', 'Quarter 3'], ['Q4', 'Quarter 4'], ['EOSY', 'End of School Year']].map(([code, name], i) => ({ code, name, sortOrder: i })) }).then(done),
+            submit: (v) => api.post('/reference/school-years', { ...v, terms: [['BOSY', 'Beginning of School Year'], ['T1', 'Term 1'], ['T2', 'Term 2'], ['T3', 'Term 3'], ['EOSY', 'End of School Year']].map(([code, name], i) => ({ code, name, sortOrder: i })) }).then(done),
           })}>Add school year</Button></div>
           {(boot?.schoolYears ?? []).map((sy) => (
             <Card key={sy.id} title={<>SY {sy.label} {sy.isCurrent && <Badge tone="blue">Current</Badge>}</>} subtitle={`${date(sy.startDate)} – ${date(sy.endDate)}`} actions={

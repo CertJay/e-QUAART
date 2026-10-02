@@ -38,6 +38,16 @@ function assertCanManage(s: DataScope, i: { schoolId: number; sectionId: number 
   }
 }
 
+/** An intervention targets one learning area, so every targeted competency must belong to it. */
+async function assertCompetenciesInLearningArea(competencyIds: number[], learningAreaId: number) {
+  if (!competencyIds.length) return;
+  const ids = [...new Set(competencyIds)];
+  const found = await prisma.competency.findMany({ where: { id: { in: ids } }, select: { id: true, learningAreaId: true } });
+  if (found.length !== ids.length) throw badRequest('One or more competencies do not exist');
+  const stray = found.filter((c) => c.learningAreaId !== learningAreaId);
+  if (stray.length) throw badRequest('An intervention can only target competencies from its own learning area');
+}
+
 // ───────────── Baseline (pre-intervention) values ─────────────
 interface Baseline {
   prePercentage: number | null;
@@ -167,6 +177,7 @@ interventionsRouter.post('/', requirePermission('intervention:write'), ah(async 
   if (!schoolId || !schoolInScope(s, schoolId)) throw forbidden('School is outside your scope');
   if (!learningAreaInScope(s, b.learningAreaId)) throw forbidden();
   if (b.targetEndDate && b.startDate && b.targetEndDate < b.startDate) throw badRequest('Target completion date is before the start date');
+  await assertCompetenciesInLearningArea(b.competencyIds, b.learningAreaId);
   const { learners, competencyIds, ...data } = b;
   const i = await prisma.intervention.create({
     data: {
@@ -190,6 +201,8 @@ interventionsRouter.put('/:id', requirePermission('intervention:write'), ah(asyn
   assertCanManage(s, before, req.user!.id);
   const b = interventionBody.omit({ learners: true, schoolId: true, schoolYearId: true }).partial().parse(req.body);
   const { competencyIds, ...data } = b;
+  if (data.learningAreaId && !learningAreaInScope(s, data.learningAreaId)) throw forbidden();
+  if (competencyIds) await assertCompetenciesInLearningArea(competencyIds, data.learningAreaId ?? before.learningAreaId);
   const i = await prisma.$transaction(async (tx) => {
     if (competencyIds) {
       await tx.interventionCompetency.deleteMany({ where: { interventionId: before.id } });

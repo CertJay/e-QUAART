@@ -39,7 +39,7 @@ export function LearnerProfilePage() {
 
   // Trend: percentage results per term by learning area.
   const pctResults = l.history.filter((h) => h.percentage != null && !h.isAbsent);
-  const termsSeen = [...new Map(pctResults.map((h) => [`${h.assessment.schoolYear.label}|${h.assessment.term.sortOrder}`, `${h.assessment.term.name.replace('Quarter ', 'Q')} ${h.assessment.schoolYear.label}`])).entries()];
+  const termsSeen = [...new Map(pctResults.map((h) => [`${h.assessment.schoolYear.label}|${h.assessment.term.sortOrder}`, `${h.assessment.term.name.replace('Term ', 'T')} ${h.assessment.schoolYear.label}`])).entries()];
   const las = [...new Map(pctResults.map((h) => [h.assessment.learningArea.id, h.assessment.learningArea.name])).entries()];
   const trend = {
     terms: termsSeen.map(([k, label], i) => ({ key: i, label, k })),

@@ -28,7 +28,7 @@ export function AssessmentConfigPage() {
         subtitle="Assessment types and their performance-level configuration. Thresholds and descriptors are data, not code: update them here when DepEd policy changes. Saving re-classifies existing results."
         actions={<Button onClick={() => setEdit({ title: 'New assessment type', initial: { resultMode: 'PERCENTAGE', isActive: true }, submit: (v) => api.post('/reference/assessment-types', v).then(done) })}>New assessment type</Button>}
       />
-      <div className="mb-4"><Notice tone="warn">Levels marked <strong>provisional</strong> were seeded for demonstration. Confirm every cut-off and descriptor (CRLA, Phil-IRI, RMA, ELLNA, quarterly bands) against the current DepEd / Region / SDO issuance.</Notice></div>
+      <div className="mb-4"><Notice tone="warn">Levels marked <strong>provisional</strong> were seeded for demonstration. Confirm every cut-off and descriptor (CRLA, Phil-IRI, RMA, ELLNA, term-examination bands) against the current DepEd / Region / SDO issuance.</Notice></div>
       {q.isLoading ? <Spinner /> : (
         <div className="space-y-4">
           {(q.data ?? []).map((t) => (

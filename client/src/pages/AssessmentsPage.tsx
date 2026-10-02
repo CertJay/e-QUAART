@@ -105,7 +105,7 @@ function NewAssessment({ presetSection, onClose, onCreated }: { presetSection: s
           </div>
         )}
         <Field label="2. School year"><Select value={v.schoolYearId} onChange={set('schoolYearId')} options={(boot?.schoolYears ?? []).map((s) => ({ value: s.id, label: s.label }))} /></Field>
-        <Field label="3. Term / quarter"><Select value={v.termId} onChange={set('termId')} options={(sy?.terms ?? []).map((t) => ({ value: t.id, label: t.name }))} placeholder="Select…" /></Field>
+        <Field label="3. Term"><Select value={v.termId} onChange={set('termId')} options={(sy?.terms ?? []).map((t) => ({ value: t.id, label: t.name }))} placeholder="Select…" /></Field>
         <Field label="4. Class (grade & section)"><Select value={v.sectionId} onChange={set('sectionId')} options={(sections.data ?? []).map((s) => ({ value: s.id, label: `${s.gradeLevel.name} – ${s.name}` }))} placeholder="Select…" /></Field>
         <Field label="5. Learning area"><Select value={v.learningAreaId} onChange={set('learningAreaId')} options={(boot?.learningAreas ?? []).filter((l) => l.isActive && l.inScope).map((l) => ({ value: l.id, label: l.name }))} placeholder="Select…" /></Field>
         <Field label="Assessment date"><Input type="date" value={v.assessmentDate} onChange={set('assessmentDate')} /></Field>

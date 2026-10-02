@@ -109,7 +109,7 @@ async function wipe() {
 interface BandSeed { label: string; tier: Tier; minPct?: number; maxPct?: number; descriptorKey?: string; description?: string; color: string; sortOrder: number }
 
 // Colour language shared by every model: blue = meets standard, amber = targeted, red/orange = intensive.
-const QUARTERLY_BANDS: BandSeed[] = [
+const TERM_BANDS: BandSeed[] = [
   { label: 'Proficient', tier: 'TIER_1', minPct: 80, maxPct: 100, color: '#2563eb', sortOrder: 1, description: 'Meets the expected learning standard' },
   { label: 'Approaching Proficiency', tier: 'TIER_2', minPct: 70, maxPct: 79.99, color: '#0891b2', sortOrder: 2, description: 'Close to the standard; targeted support' },
   { label: 'Developing', tier: 'TIER_2', minPct: 60, maxPct: 69.99, color: '#d97706', sortOrder: 3, description: 'Partially meets the standard; targeted support' },
@@ -127,7 +127,9 @@ export async function seed() {
   // Calendar
   const syPast = await prisma.schoolYear.create({ data: { label: '2025-2026', startDate: new Date('2025-06-16'), endDate: new Date('2026-04-15'), isCurrent: false } });
   const syCur = await prisma.schoolYear.create({ data: { label: '2026-2027', startDate: new Date('2026-06-15'), endDate: new Date('2027-04-14'), isCurrent: true } });
-  const termDefs = [['BOSY', 'Beginning of School Year', 0], ['Q1', 'Quarter 1', 1], ['Q2', 'Quarter 2', 2], ['Q3', 'Quarter 3', 3], ['Q4', 'Quarter 4', 4], ['EOSY', 'End of School Year', 5]] as const;
+  // DepEd Order No. 009, s. 2026 — three-term school calendar (no quarters).
+  // BOSY/EOSY are diagnostic windows (CRLA, Phil-IRI, RMA); T1–T3 carry the End-of-Term examinations.
+  const termDefs = [['BOSY', 'Beginning of School Year', 0], ['T1', 'Term 1', 1], ['T2', 'Term 2', 2], ['T3', 'Term 3', 3], ['EOSY', 'End of School Year', 4]] as const;
   const terms: Record<number, Record<string, number>> = {};
   for (const sy of [syPast, syCur]) {
     terms[sy.id] = {};
@@ -169,8 +171,8 @@ export async function seed() {
     types[code] = { typeId: t.id, modelId: m.id, mode, bands: m.bands, threshold: m.masteryThreshold };
   };
   const confirm = 'Seeded for demonstration. Confirm levels and cut-offs against the current DepEd / SDO issuance before use.';
-  await mkType('QUARTERLY', 'Quarterly / End-of-Term Assessment', 'PERCENTAGE', 'Written quarterly assessment per learning area, itemised by competency.', QUARTERLY_BANDS, confirm);
-  await mkType('SBA', 'School-Based Assessment', 'PERCENTAGE', 'Other school-administered tests (diagnostic, summative, periodical).', QUARTERLY_BANDS, confirm);
+  await mkType('TERM_EXAM', 'Term Examination (End-of-Term)', 'PERCENTAGE', 'End-of-term examination per learning area, itemised by competency (DepEd three-term calendar).', TERM_BANDS, confirm);
+  await mkType('SBA', 'School-Based Assessment', 'PERCENTAGE', 'Other school-administered tests (diagnostic, summative, two teacher-developed summative tests per term).', TERM_BANDS, confirm);
   await mkType('CRLA', 'CRLA — Comprehensive Rapid Literacy Assessment', 'PROFILE', 'Key Stage 1 reading profile (Grades 1–3).', [
     { label: 'Grade Ready', descriptorKey: 'GRADE_READY', tier: 'TIER_1', color: '#2563eb', sortOrder: 1 },
     { label: 'Light Refresher', descriptorKey: 'LIGHT_REFRESHER', tier: 'TIER_2', color: '#0891b2', sortOrder: 2 },
@@ -285,7 +287,7 @@ export async function seed() {
   // ───────────── Assessments & results ─────────────
   const schoolEffect = Object.fromEntries(SCHOOLS.map((s) => [s.key, s.effect]));
   const subjectsFor = (g: string) => (['G1', 'G2'].includes(g) ? ['MATH', 'ENG', 'FIL'] : ['MATH', 'ENG', 'FIL', 'SCI']);
-  const termIndex: Record<string, number> = { BOSY: 0, Q1: 1, Q2: 2, Q3: 3, Q4: 4, EOSY: 5 };
+  const termIndex: Record<string, number> = { BOSY: 0, T1: 1, T2: 2, T3: 3, EOSY: 4 };
   let assessmentCount = 0;
 
   async function makeAssessment(opts: {
@@ -295,15 +297,15 @@ export async function seed() {
     const { sec, syId, termCode, typeCode, laCode } = opts;
     const t = types[typeCode];
     const g = grade[sec.gradeCode];
-    const compList = typeCode === 'QUARTERLY' ? (() => {
+    const compList = typeCode === 'TERM_EXAM' ? (() => {
       const all = comps[`${laCode}:${sec.gradeCode}`];
       const q = termIndex[termCode];
       return [0, 1, 2, 3].map((i) => all[((q - 1) * 2 + i) % all.length]);
     })() : [];
     const items = compList.map((_, i) => (i % 2 === 0 ? 10 : 8));
-    const maxScore = typeCode === 'QUARTERLY' ? items.reduce((a, b) => a + b, 0) : null;
+    const maxScore = typeCode === 'TERM_EXAM' ? items.reduce((a, b) => a + b, 0) : null;
     const schoolName = SCHOOLS.find((s) => s.key === sec.schoolKey)!;
-    const typeName = { QUARTERLY: 'Quarterly Assessment', CRLA: 'CRLA', PHIL_IRI: 'Phil-IRI', RMA: 'RMA' }[typeCode] ?? typeCode;
+    const typeName = { TERM_EXAM: 'Term Examination', CRLA: 'CRLA', PHIL_IRI: 'Phil-IRI', RMA: 'RMA' }[typeCode] ?? typeCode;
     const laName = LEARNING_AREAS.find(([c]) => c === laCode)![1];
     const a = await prisma.assessment.create({
       data: {
@@ -372,11 +374,11 @@ export async function seed() {
         await makeAssessment({ sec, syId: syPast.id, termCode, typeCode: 'PHIL_IRI', laCode: 'FIL', status: 'VERIFIED', date: d(date), growthBase: -0.45 });
       }
     }
-    for (const [termCode, date] of [['Q1', '2025-08-25'], ['Q2', '2025-10-27'], ['Q3', '2026-01-26'], ['Q4', '2026-03-30']] as const) {
-      for (const laCode of subjectsFor(g)) await makeAssessment({ sec, syId: syPast.id, termCode, typeCode: 'QUARTERLY', laCode, status: 'VERIFIED', date: d(date), growthBase: -0.45 });
+    for (const [termCode, date] of [['T1', '2025-08-29'], ['T2', '2025-12-04'], ['T3', '2026-03-20']] as const) {
+      for (const laCode of subjectsFor(g)) await makeAssessment({ sec, syId: syPast.id, termCode, typeCode: 'TERM_EXAM', laCode, status: 'VERIFIED', date: d(date), growthBase: -0.45 });
     }
   }
-  // Current school year: BOSY and Q1 finalized, Q2 in progress.
+  // Current school year: BOSY and Term 1 finalized, Term 2 end-of-term examination in progress.
   for (const sec of current) {
     const g = sec.gradeCode;
     const isKS1 = ['G1', 'G2', 'G3'].includes(g);
@@ -388,22 +390,22 @@ export async function seed() {
       await makeAssessment({ sec, syId: syCur.id, termCode: 'BOSY', typeCode: 'PHIL_IRI', laCode: 'FIL', status: 'VERIFIED', date: d('2026-06-29'), growthBase: 0 });
     }
     for (const laCode of subjectsFor(g)) {
-      const q1Status = sec.schoolKey === 'LES' && laCode === 'SCI' ? 'SUBMITTED' : 'VERIFIED';
-      await makeAssessment({ sec, syId: syCur.id, termCode: 'Q1', typeCode: 'QUARTERLY', laCode, status: q1Status, date: d('2026-08-24'), growthBase: 0 });
+      const t1Status = sec.schoolKey === 'LES' && laCode === 'SCI' ? 'SUBMITTED' : 'VERIFIED';
+      await makeAssessment({ sec, syId: syCur.id, termCode: 'T1', typeCode: 'TERM_EXAM', laCode, status: t1Status, date: d('2026-08-31'), growthBase: 0 });
     }
     const isDemo = sec.adviserId === users.teacher;
     for (const laCode of subjectsFor(g)) {
       if (isDemo) {
-        // The demo teacher's class shows each workflow state.
-        if (laCode === 'MATH') await makeAssessment({ sec, syId: syCur.id, termCode: 'Q2', typeCode: 'QUARTERLY', laCode, status: 'DRAFT', encodeFraction: 0.6, date: d('2026-09-21'), growthBase: 0 });
-        if (laCode === 'FIL') await makeAssessment({ sec, syId: syCur.id, termCode: 'Q2', typeCode: 'QUARTERLY', laCode, status: 'SUBMITTED', date: d('2026-09-18'), growthBase: 0 });
-        if (laCode === 'SCI') await makeAssessment({ sec, syId: syCur.id, termCode: 'Q2', typeCode: 'QUARTERLY', laCode, status: 'RETURNED', returnReason: 'Please re-check the scores of two learners against the answer sheets.', date: d('2026-09-15'), growthBase: 0 });
+        // The demo teacher's class shows each workflow state for the Term 2 end-of-term examination.
+        if (laCode === 'MATH') await makeAssessment({ sec, syId: syCur.id, termCode: 'T2', typeCode: 'TERM_EXAM', laCode, status: 'DRAFT', encodeFraction: 0.6, date: d('2026-12-03'), growthBase: 0 });
+        if (laCode === 'FIL') await makeAssessment({ sec, syId: syCur.id, termCode: 'T2', typeCode: 'TERM_EXAM', laCode, status: 'SUBMITTED', date: d('2026-12-03'), growthBase: 0 });
+        if (laCode === 'SCI') await makeAssessment({ sec, syId: syCur.id, termCode: 'T2', typeCode: 'TERM_EXAM', laCode, status: 'RETURNED', returnReason: 'Please re-check the scores of two learners against the answer sheets.', date: d('2026-12-03'), growthBase: 0 });
         continue;
       }
       const r = rand();
-      if (r < 0.35) await makeAssessment({ sec, syId: syCur.id, termCode: 'Q2', typeCode: 'QUARTERLY', laCode, status: 'VERIFIED', date: d('2026-09-14'), growthBase: 0 });
-      else if (r < 0.6) await makeAssessment({ sec, syId: syCur.id, termCode: 'Q2', typeCode: 'QUARTERLY', laCode, status: 'SUBMITTED', date: d('2026-09-16'), growthBase: 0 });
-      else if (r < 0.8) await makeAssessment({ sec, syId: syCur.id, termCode: 'Q2', typeCode: 'QUARTERLY', laCode, status: 'DRAFT', encodeFraction: 0.4 + rand() * 0.5, date: d('2026-09-21'), growthBase: 0 });
+      if (r < 0.35) await makeAssessment({ sec, syId: syCur.id, termCode: 'T2', typeCode: 'TERM_EXAM', laCode, status: 'VERIFIED', date: d('2026-12-03'), growthBase: 0 });
+      else if (r < 0.6) await makeAssessment({ sec, syId: syCur.id, termCode: 'T2', typeCode: 'TERM_EXAM', laCode, status: 'SUBMITTED', date: d('2026-12-04'), growthBase: 0 });
+      else if (r < 0.8) await makeAssessment({ sec, syId: syCur.id, termCode: 'T2', typeCode: 'TERM_EXAM', laCode, status: 'DRAFT', encodeFraction: 0.4 + rand() * 0.5, date: d('2026-12-04'), growthBase: 0 });
     }
   }
 
@@ -482,9 +484,9 @@ export async function seed() {
       }
     }
   }
-  await makeInterventions(past, syPast.id, 'Q1', d('2025-09-08'), 0.95);
-  await makeInterventions(past, syPast.id, 'Q3', d('2026-02-09'), 0.9);
-  await makeInterventions(current, syCur.id, 'Q1', d('2026-09-07'), 0.35);
+  await makeInterventions(past, syPast.id, 'T1', d('2025-09-15'), 0.95);
+  await makeInterventions(past, syPast.id, 'T2', d('2025-12-15'), 0.9);
+  await makeInterventions(current, syCur.id, 'T1', d('2026-09-14'), 0.35);
 
   // Reading remediation for CRLA Full/Moderate Refresher learners (profile-level gaps).
   for (const sec of current.filter((s) => ['G1', 'G2', 'G3'].includes(s.gradeCode) && s.schoolKey !== 'LES')) {
