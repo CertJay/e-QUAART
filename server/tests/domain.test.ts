@@ -3,6 +3,25 @@ import { classify, classifyPercentage, competencyTier, computePercentage, valida
 import { computeEffectiveness } from '../src/domain/effectiveness.js';
 import { suppress, tierMetrics } from '../src/domain/metrics.js';
 import { isValidLrn, maskLrn, normalizeLrn } from '../src/domain/lrn.js';
+import { assertYearAllows, canTransition, yearAllows } from '../src/domain/schoolYear.js';
+
+describe('school-year lifecycle rules', () => {
+  it('moves only forward, except CLOSING back to OPEN', () => {
+    expect(canTransition('OPEN', 'CLOSING')).toBe(true);
+    expect(canTransition('CLOSING', 'OPEN')).toBe(true);
+    expect(canTransition('CLOSING', 'CLOSED')).toBe(true);
+    expect(canTransition('CLOSED', 'ARCHIVED')).toBe(true);
+    expect(canTransition('OPEN', 'CLOSED')).toBe(false);
+    expect(canTransition('CLOSED', 'OPEN')).toBe(false);
+    expect(canTransition('ARCHIVED', 'CLOSED')).toBe(false);
+  });
+
+  it('allows encoding only while OPEN and finalization while OPEN or CLOSING', () => {
+    expect(['OPEN', 'CLOSING', 'CLOSED', 'ARCHIVED'].map((s) => yearAllows(s as never, 'encode'))).toEqual([true, false, false, false]);
+    expect(['OPEN', 'CLOSING', 'CLOSED', 'ARCHIVED'].map((s) => yearAllows(s as never, 'finalize'))).toEqual([true, true, false, false]);
+    expect(() => assertYearAllows({ label: '2025-2026', status: 'CLOSED' }, 'finalize')).toThrow(/read-only/);
+  });
+});
 
 const pctBands: BandLike[] = [
   { id: 1, label: 'Proficient', tier: 'TIER_1', minPct: 80, maxPct: 100, descriptorKey: null, sortOrder: 1 },

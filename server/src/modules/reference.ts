@@ -3,9 +3,10 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 import { requirePermission } from '../auth/middleware.js';
 import { audit } from '../lib/audit.js';
-import { badRequest, conflict, notFound } from '../lib/errors.js';
+import { AppError, badRequest, conflict, notFound } from '../lib/errors.js';
 import { ah, idParam, nullableDate } from '../lib/http.js';
 import { classify, validateBands } from '../domain/classification.js';
+import { canTransition, SY_TRANSITIONS } from '../domain/schoolYear.js';
 import { syncLearningGaps } from './gaps.service.js';
 
 export const referenceRouter = Router();
@@ -114,6 +115,9 @@ referenceRouter.put('/school-years/:id', canWrite, ah(async (req, res) => {
   const id = idParam(req);
   const b = syBody.partial().parse(req.body);
   const before = await prisma.schoolYear.findUniqueOrThrow({ where: { id } });
+  if (b.isCurrent && (before.status === 'CLOSED' || before.status === 'ARCHIVED')) {
+    throw conflict(`SY ${before.label} is ${before.status.toLowerCase()} and cannot be made the current school year`);
+  }
   const sy = await prisma.$transaction(async (tx) => {
     if (b.isCurrent) await tx.schoolYear.updateMany({ where: { id: { not: id } }, data: { isCurrent: false } });
     return tx.schoolYear.update({ where: { id }, data: { label: b.label, startDate: b.startDate, endDate: b.endDate, isCurrent: b.isCurrent } });
@@ -121,6 +125,40 @@ referenceRouter.put('/school-years/:id', canWrite, ah(async (req, res) => {
   await audit(req, 'UPDATE', 'SchoolYear', id, before, sy);
   res.json(sy);
 }));
+/**
+ * Move a school year through its lifecycle (spec §7.1). System Administrator only.
+ * Closing is refused while records still await submission or validation, or while
+ * correction requests are pending, so nothing is frozen half-finished.
+ */
+referenceRouter.post('/school-years/:id/status', requirePermission('schoolyear:manage'), ah(async (req, res) => {
+  const id = idParam(req);
+  const b = z.object({ status: z.enum(['OPEN', 'CLOSING', 'CLOSED', 'ARCHIVED']), note: z.string().trim().max(300).optional() }).parse(req.body);
+  const before = await prisma.schoolYear.findUnique({ where: { id } });
+  if (!before) throw notFound('School year');
+  if (!canTransition(before.status, b.status)) {
+    const allowed = SY_TRANSITIONS[before.status];
+    throw conflict(
+      `SY ${before.label} cannot move from ${before.status} to ${b.status}.` + (allowed.length ? ` Allowed next: ${allowed.join(', ')}.` : ' It is final.'),
+      { from: before.status, to: b.status, allowed },
+    );
+  }
+  if (b.status === 'CLOSED') {
+    const [pending, corrections] = await Promise.all([
+      prisma.assessment.groupBy({ by: ['status'], where: { schoolYearId: id, deletedAt: null, status: { not: 'VERIFIED' } }, _count: true }),
+      prisma.correctionRequest.count({ where: { schoolYearId: id, status: 'PENDING' } }),
+    ]);
+    if (pending.length || corrections) {
+      throw new AppError(409, 'UNFINISHED_RECORDS', `SY ${before.label} still has records that are not validated. Finish or remove them before closing.`, {
+        assessments: Object.fromEntries(pending.map((p) => [p.status, p._count])),
+        pendingCorrections: corrections,
+      });
+    }
+  }
+  const sy = await prisma.schoolYear.update({ where: { id }, data: { status: b.status } });
+  await audit(req, 'STATUS_CHANGE', 'SchoolYear', id, { status: before.status }, { status: sy.status, note: b.note ?? null });
+  res.json(sy);
+}));
+
 const termBody = z.object({ code: z.string().min(1).max(10), name: z.string().min(1), sortOrder: z.number().int(), startDate: nullableDate, endDate: nullableDate });
 referenceRouter.post('/school-years/:id/terms', canWrite, ah(async (req, res) => {
   const t = await prisma.term.create({ data: { ...termBody.parse(req.body), schoolYearId: idParam(req) } });
@@ -299,6 +337,8 @@ referenceRouter.put('/classification-models/:id', canWrite, ah(async (req, res) 
     const { bands, ...rest } = b;
     await tx.classificationModel.update({ where: { id }, data: rest });
     for (const rb of removed) {
+      const historical = await tx.assessmentResult.count({ where: { bandId: rb.id, assessment: { schoolYear: { status: { in: ['CLOSED', 'ARCHIVED'] } } } } });
+      if (historical) throw conflict(`"${rb.label}" is used by results of a closed school year. Create a new model version instead of removing it.`);
       await tx.assessmentResult.updateMany({ where: { bandId: rb.id }, data: { bandId: null } });
       await tx.reassessment.updateMany({ where: { bandId: rb.id }, data: { bandId: null } });
       await tx.classificationBand.delete({ where: { id: rb.id } });
@@ -332,7 +372,8 @@ type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 async function reclassifyModel(tx: TxClient, modelId: number) {
   const model = await tx.classificationModel.findUniqueOrThrow({ where: { id: modelId }, include: { bands: true, assessmentType: true } });
-  const assessments = await tx.assessment.findMany({ where: { modelId }, include: { results: { include: { competencyResults: true } } } });
+  // Closed school years keep the classification they were finalized with (spec §7.3).
+  const assessments = await tx.assessment.findMany({ where: { modelId, schoolYear: { status: { in: ['OPEN', 'CLOSING'] } } }, include: { results: { include: { competencyResults: true } } } });
   let n = 0;
   for (const a of assessments) {
     for (const r of a.results) {

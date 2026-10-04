@@ -105,6 +105,21 @@ enum IlmpStatus {
   COMPLETED
 }
 
+// School-year lifecycle (spec §7.1). Only the System Administrator moves it forward.
+enum SchoolYearStatus {
+  OPEN // data entry allowed
+  CLOSING // validation and finalization: submit/verify pending records only
+  CLOSED // read-only
+  ARCHIVED // historical reference
+}
+
+enum CorrectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
 enum BreachStatus {
   OPEN
   CONTAINED
@@ -164,7 +179,8 @@ model SchoolYear {
   label       String       @unique // e.g. "2025-2026"
   startDate   DateTime
   endDate     DateTime
-  isCurrent   Boolean      @default(false)
+  isCurrent   Boolean          @default(false)
+  status      SchoolYearStatus @default(OPEN)
   terms       Term[]
   sections    Section[]
   enrolments  Enrolment[]
@@ -440,6 +456,7 @@ model AssessmentResult {
   updatedById       Int?
   competencyResults CompetencyResult[]
   gaps              LearningGap[]
+  corrections       CorrectionRequest[]
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 
@@ -459,6 +476,38 @@ model CompetencyResult {
 
   @@unique([resultId, competencyId])
   @@index([competencyId])
+}
+
+/**
+ * Controlled correction of a locked (verified) result (spec §7.4). The requester proposes new
+ * values with a reason; a different authorized reviewer approves or rejects. On approval the
+ * system applies the change, re-classifies the result and re-derives learning gaps.
+ */
+model CorrectionRequest {
+  id                 Int              @id @default(autoincrement())
+  assessmentResultId Int
+  assessmentResult   AssessmentResult @relation(fields: [assessmentResultId], references: [id])
+  assessmentId       Int // denormalized for scope filtering
+  schoolId           Int
+  sectionId          Int
+  schoolYearId       Int
+  changes            Json // [{ field, label, oldValue, newValue }]
+  proposed           Json // full result entry as it will be applied
+  reason             String
+  evidence           String?
+  status             CorrectionStatus @default(PENDING)
+  requestedById      Int
+  requestedBy        User             @relation("CorrectionRequestedBy", fields: [requestedById], references: [id])
+  reviewedById       Int?
+  reviewedBy         User?            @relation("CorrectionReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt         DateTime?
+  reviewNote         String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([assessmentResultId, status])
+  @@index([schoolId, status])
+  @@index([assessmentId])
 }
 
 // ─────────────────────────── Learning gaps & interventions ───────────────────────────
@@ -638,6 +687,8 @@ model User {
   assessmentsCreated  Assessment[]     @relation("AssessmentCreatedBy")
   assessmentsVerified Assessment[]     @relation("AssessmentVerifiedBy")
   interventionsOwned  Intervention[]   @relation("InterventionOwner")
+  correctionsRequested CorrectionRequest[] @relation("CorrectionRequestedBy")
+  correctionsReviewed  CorrectionRequest[] @relation("CorrectionReviewedBy")
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
 }

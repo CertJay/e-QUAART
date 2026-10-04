@@ -101,6 +101,8 @@ const MIDDLE = ['Santos', 'Reyes', 'Cruz', 'Lim', 'Tan', 'Go', 'Yap', 'Sy', 'Uy'
 async function wipe() {
   const tables = await prisma.$queryRaw<{ name: string }[]>`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> '_prisma_migrations'`;
   await prisma.$executeRawUnsafe('PRAGMA foreign_keys = OFF');
+  // Closed-year results are protected by triggers; reopen every year so they can be wiped.
+  if (tables.some((t) => t.name === 'SchoolYear')) await prisma.$executeRawUnsafe(`UPDATE "SchoolYear" SET "status" = 'OPEN'`);
   for (const t of tables) await prisma.$executeRawUnsafe(`DELETE FROM "${t.name}"`);
   await prisma.$executeRawUnsafe(`DELETE FROM sqlite_sequence`).catch(() => undefined);
   await prisma.$executeRawUnsafe('PRAGMA foreign_keys = ON');
@@ -515,6 +517,9 @@ export async function seed() {
       }
     }
   }
+
+  // The previous school year is history: read-only from here on (spec §7.1).
+  await prisma.schoolYear.update({ where: { id: syPast.id }, data: { status: 'CLOSED' } });
 
   // ───────────── Governance defaults ─────────────
   await prisma.retentionPolicy.createMany({

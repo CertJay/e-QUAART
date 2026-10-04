@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db.js';
+import { assertYearIdAllows } from '../domain/schoolYear.js';
 import { requirePermission } from '../auth/middleware.js';
 import { audit } from '../lib/audit.js';
 import { badRequest, forbidden, notFound } from '../lib/errors.js';
@@ -51,6 +52,7 @@ sectionsRouter.post('/', requirePermission('section:write'), ah(async (req, res)
   const s = req.scope!;
   const b = sectionBody.parse(req.body);
   if (!schoolInScope(s, b.schoolId)) throw forbidden('You can only create classes in your own school');
+  await assertYearIdAllows(b.schoolYearId, 'encode');
   const adviserId = req.user!.role === 'TEACHER' ? req.user!.id : (b.adviserId ?? null);
   if (adviserId) await assertSchoolStaff(adviserId, b.schoolId);
   const sec = await prisma.section.create({ data: { ...b, adviserId } });
@@ -88,7 +90,9 @@ sectionsRouter.put('/:id', requirePermission('section:write'), ah(async (req, re
   const id = idParam(req);
   const before = await prisma.section.findUnique({ where: { id } });
   if (!before || !sectionInScope(s, before)) throw notFound('Class');
+  await assertYearIdAllows(before.schoolYearId, 'encode');
   const b = sectionBody.partial().omit({ schoolId: true }).parse(req.body);
+  if (b.schoolYearId && b.schoolYearId !== before.schoolYearId) await assertYearIdAllows(b.schoolYearId, 'encode');
   if (req.user!.role === 'TEACHER') delete b.adviserId;
   if (b.adviserId) await assertSchoolStaff(b.adviserId, before.schoolId);
   const sec = await prisma.section.update({ where: { id }, data: b });
@@ -101,6 +105,7 @@ sectionsRouter.post('/:id/teachers', requirePermission('section:write'), ah(asyn
   const id = idParam(req);
   const sec = await prisma.section.findUnique({ where: { id } });
   if (!sec || !sectionInScope(s, sec)) throw notFound('Class');
+  await assertYearIdAllows(sec.schoolYearId, 'encode');
   const b = z.object({ userId: z.number().int(), learningAreaId: z.number().int().nullable().optional() }).parse(req.body);
   await assertSchoolStaff(b.userId, sec.schoolId);
   const t = await prisma.sectionTeacher.create({ data: { sectionId: id, userId: b.userId, learningAreaId: b.learningAreaId ?? null } });
@@ -112,6 +117,7 @@ sectionsRouter.delete('/:id/teachers/:assignmentId', requirePermission('section:
   const s = req.scope!;
   const t = await prisma.sectionTeacher.findUnique({ where: { id: idParam(req, 'assignmentId') }, include: { section: true } });
   if (!t || t.sectionId !== idParam(req) || !sectionInScope(s, t.section)) throw notFound('Assignment');
+  await assertYearIdAllows(t.section.schoolYearId, 'encode');
   await prisma.sectionTeacher.delete({ where: { id: t.id } });
   await audit(req, 'DELETE', 'SectionTeacher', t.id, t, null);
   res.json({ ok: true });

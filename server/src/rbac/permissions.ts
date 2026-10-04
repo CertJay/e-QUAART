@@ -10,7 +10,9 @@ export const PERMISSIONS = [
   'section:write',
   'assessment:read',
   'assessment:write', // create, encode, import, submit
-  'assessment:verify', // verify, return, reopen
+  'assessment:verify', // verify, return
+  'correction:request', // ask for a controlled correction of a locked result
+  'correction:review', // approve or reject correction requests (never one's own)
   'analytics:read', // aggregated analytics within scope
   'gap:read',
   'intervention:read',
@@ -21,6 +23,7 @@ export const PERMISSIONS = [
   'settings:write',
   'audit:read',
   'governance:manage', // retention policies, breach register
+  'schoolyear:manage', // move a school year through OPEN → CLOSING → CLOSED → ARCHIVED
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -28,17 +31,17 @@ const schoolStaffRead: Permission[] = ['learner:read', 'assessment:read', 'analy
 const divisionRead: Permission[] = ['analytics:read', 'gap:read', 'intervention:read', 'report:export', 'assessment:read'];
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
-  TEACHER: [...schoolStaffRead, 'learner:write', 'section:write', 'assessment:write', 'intervention:write'],
-  MASTER_TEACHER: [...schoolStaffRead, 'learner:write', 'assessment:write', 'assessment:verify', 'intervention:write'],
-  ASSESSMENT_COORDINATOR: [...schoolStaffRead, 'learner:write', 'section:write', 'assessment:write', 'assessment:verify', 'intervention:write'],
+  TEACHER: [...schoolStaffRead, 'learner:write', 'section:write', 'assessment:write', 'intervention:write', 'correction:request'],
+  MASTER_TEACHER: [...schoolStaffRead, 'learner:write', 'assessment:write', 'assessment:verify', 'intervention:write', 'correction:request', 'correction:review'],
+  ASSESSMENT_COORDINATOR: [...schoolStaffRead, 'learner:write', 'section:write', 'assessment:write', 'assessment:verify', 'intervention:write', 'correction:request', 'correction:review'],
   // School heads approve/verify but keep read-only access to encoded scores.
-  PRINCIPAL: [...schoolStaffRead, 'section:write', 'assessment:verify'],
+  PRINCIPAL: [...schoolStaffRead, 'section:write', 'assessment:verify', 'correction:request', 'correction:review'],
   PSDS: [...divisionRead],
   EPS: [...divisionRead],
   CHIEF_CID: [...divisionRead],
   DIVISION_ADMIN: [...divisionRead, 'reference:write', 'user:manage', 'settings:write', 'audit:read', 'governance:manage'],
   // ICT admin: accounts & configuration, no academic data.
-  SYSTEM_ADMIN: ['user:manage', 'settings:write', 'audit:read'],
+  SYSTEM_ADMIN: ['user:manage', 'settings:write', 'audit:read', 'schoolyear:manage'],
   DPO: ['audit:read', 'governance:manage'],
 };
 

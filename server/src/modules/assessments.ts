@@ -3,7 +3,7 @@ import multer from 'multer';
 import ExcelJS from 'exceljs';
 import { stringify } from 'csv-stringify/sync';
 import { z } from 'zod';
-import type { Prisma } from '@prisma/client';
+import type { Prisma, SchoolYearStatus } from '@prisma/client';
 import { prisma } from '../db.js';
 import { requirePermission } from '../auth/middleware.js';
 import { audit } from '../lib/audit.js';
@@ -12,6 +12,8 @@ import { ah, idParam, nullableDate, paged, paginationSchema } from '../lib/http.
 import { parseTabular } from '../lib/tabular.js';
 import { learnerName } from '../domain/lrn.js';
 import { tierMetrics } from '../domain/metrics.js';
+import { assertYearAllows, yearAllows } from '../domain/schoolYear.js';
+import { hasPermission } from '../rbac/permissions.js';
 import { assessmentWhere, learningAreaInScope, sectionInScope, type DataScope } from '../rbac/scope.js';
 import { applyEntries, parseResultRows, validateEntry, type FullAssessment, type ResultEntry } from './assessments.service.js';
 import { syncLearningGaps } from './gaps.service.js';
@@ -39,9 +41,14 @@ async function loadAssessment(s: DataScope, id: number) {
   return a;
 }
 
-function assertEditable(a: { status: string }) {
-  if (a.status !== 'DRAFT' && a.status !== 'RETURNED') {
-    throw new AppError(423, 'LOCKED', `This assessment is ${a.status.toLowerCase()} and locked. Ask a verifier to reopen it.`);
+/** Results can be changed only while DRAFT/RETURNED in an OPEN school year (spec §7.3). */
+function assertEditable(a: { status: string; schoolYear: { label: string; status: SchoolYearStatus } }) {
+  assertYearAllows(a.schoolYear, 'encode');
+  if (a.status === 'SUBMITTED') {
+    throw new AppError(423, 'LOCKED', 'This assessment is submitted and awaiting validation. Ask the validator to return it if something must change.');
+  }
+  if (a.status === 'VERIFIED') {
+    throw new AppError(423, 'LOCKED', 'This assessment is validated and locked. Changes need an approved correction request.');
   }
 }
 
@@ -163,6 +170,7 @@ assessmentsRouter.post('/', requirePermission('assessment:write'), ah(async (req
   const section = await prisma.section.findUnique({ where: { id: b.sectionId }, include: { gradeLevel: true } });
   if (!section || !sectionInScope(s, section)) throw forbidden('You can only create assessments for your own classes');
   if (section.schoolYearId !== b.schoolYearId) throw badRequest('The class belongs to a different school year');
+  assertYearAllows(await prisma.schoolYear.findUniqueOrThrow({ where: { id: b.schoolYearId } }), 'encode');
   if (!learningAreaInScope(s, b.learningAreaId)) throw forbidden();
   const { type, model } = await validateConfig(b, section.gradeLevelId);
   await assertNoDuplicate(b);
@@ -234,6 +242,7 @@ assessmentsRouter.put('/:id', requirePermission('assessment:write'), ah(async (r
 assessmentsRouter.delete('/:id', requirePermission('assessment:write'), ah(async (req, res) => {
   const a = await loadAssessment(req.scope!, idParam(req));
   assertCanEncode(req, a);
+  assertYearAllows(a.schoolYear, 'encode');
   if (a.status !== 'DRAFT') throw conflict('Only draft assessments can be deleted');
   await prisma.assessment.update({ where: { id: a.id }, data: { deletedAt: new Date() } });
   await audit(req, 'DELETE', 'Assessment', a.id, a, null);
@@ -282,8 +291,27 @@ assessmentsRouter.get('/:id', requirePermission('assessment:read'), ah(async (re
       result: byLearner.get(learner.id) ?? null,
     }));
   }
-  const canEncode = sectionInScope(s, { id: a.sectionId, schoolId: a.schoolId }) && ['TEACHER', 'MASTER_TEACHER', 'ASSESSMENT_COORDINATOR'].includes(req.user!.role);
-  res.json({ ...a, summary, rows, canEncode, canVerify: ['MASTER_TEACHER', 'ASSESSMENT_COORDINATOR', 'PRINCIPAL'].includes(req.user!.role) && a.createdById !== req.user!.id });
+  const role = req.user!.role;
+  const ownClass = sectionInScope(s, { id: a.sectionId, schoolId: a.schoolId });
+  const encoderRole = ['TEACHER', 'MASTER_TEACHER', 'ASSESSMENT_COORDINATOR'].includes(role);
+  const canEncode = ownClass && encoderRole && yearAllows(a.schoolYear.status, 'encode');
+  // While a year is CLOSING, pending work can still be submitted though no longer edited.
+  const canSubmit = ownClass && encoderRole && yearAllows(a.schoolYear.status, 'finalize') && (a.status === 'DRAFT' || a.status === 'RETURNED');
+  const canVerify = ['MASTER_TEACHER', 'ASSESSMENT_COORDINATOR', 'PRINCIPAL'].includes(role) && a.createdById !== req.user!.id && yearAllows(a.schoolYear.status, 'finalize');
+  // Validated results are locked; corrections go through a request (spec §7.4).
+  const canRequestCorrection = a.status === 'VERIFIED' && s.learnerLevel && hasPermission(role, 'correction:request') && yearAllows(a.schoolYear.status, 'finalize');
+  const pending = s.learnerLevel
+    ? await prisma.correctionRequest.findMany({ where: { assessmentId: a.id, status: 'PENDING' }, select: { id: true, assessmentResultId: true } })
+    : [];
+  const lockReason = !yearAllows(a.schoolYear.status, 'finalize')
+    ? `SY ${a.schoolYear.label} is ${a.schoolYear.status.toLowerCase()}: results are read-only.`
+    : a.status === 'VERIFIED' ? 'Validated results are locked. Changes need an approved correction request.'
+    : !yearAllows(a.schoolYear.status, 'encode') ? `SY ${a.schoolYear.label} is closing: pending records can still be submitted and validated, but not edited.`
+    : null;
+  res.json({
+    ...a, summary, rows, canEncode, canSubmit, canVerify, canRequestCorrection, lockReason,
+    pendingCorrections: Object.fromEntries(pending.map((p) => [p.assessmentResultId, p.id])),
+  });
 }));
 
 const entrySchema = z.object({
@@ -427,7 +455,9 @@ assessmentsRouter.get('/:id/qa', requirePermission('assessment:read'), ah(async 
 assessmentsRouter.post('/:id/submit', requirePermission('assessment:write'), ah(async (req, res) => {
   const a = await loadAssessment(req.scope!, idParam(req));
   assertCanEncode(req, a);
-  assertEditable(a);
+  // Submitting pending work is still allowed while the year is CLOSING.
+  assertYearAllows(a.schoolYear, 'finalize');
+  if (a.status !== 'DRAFT' && a.status !== 'RETURNED') throw new AppError(423, 'LOCKED', `This assessment is already ${a.status.toLowerCase()}.`);
   const checks = await runQa(a);
   if (checks.some((c) => c.blocking)) {
     throw new AppError(422, 'QA_FAILED', 'Quality checks must pass before submission', checks.filter((c) => c.blocking));
@@ -443,6 +473,7 @@ assessmentsRouter.post('/:id/submit', requirePermission('assessment:write'), ah(
 
 assessmentsRouter.post('/:id/verify', requirePermission('assessment:verify'), ah(async (req, res) => {
   const a = await loadAssessment(req.scope!, idParam(req));
+  assertYearAllows(a.schoolYear, 'finalize');
   if (a.status !== 'SUBMITTED') throw conflict('Only submitted assessments can be verified');
   if (a.createdById === req.user!.id) throw forbidden('Results must be verified by someone other than the encoder');
   const u = await prisma.$transaction(async (tx) => {
@@ -458,6 +489,7 @@ const reasonBody = z.object({ reason: z.string().trim().min(5, 'Give a reason (a
 
 assessmentsRouter.post('/:id/return', requirePermission('assessment:verify'), ah(async (req, res) => {
   const a = await loadAssessment(req.scope!, idParam(req));
+  assertYearAllows(a.schoolYear, 'finalize');
   if (a.status !== 'SUBMITTED') throw conflict('Only submitted assessments can be returned');
   const { reason } = reasonBody.parse(req.body);
   const u = await prisma.$transaction(async (tx) => {
@@ -466,16 +498,6 @@ assessmentsRouter.post('/:id/return', requirePermission('assessment:verify'), ah
     return x;
   });
   await audit(req, 'RETURN', 'Assessment', a.id, { status: a.status }, { status: 'RETURNED', reason });
-  res.json(u);
-}));
-
-/** Re-open a verified assessment for correction (an "edit request"); fully audit-logged. */
-assessmentsRouter.post('/:id/reopen', requirePermission('assessment:verify'), ah(async (req, res) => {
-  const a = await loadAssessment(req.scope!, idParam(req));
-  if (a.status !== 'VERIFIED') throw conflict('Only verified assessments can be reopened');
-  const { reason } = reasonBody.parse(req.body);
-  const u = await prisma.assessment.update({ where: { id: a.id }, data: { status: 'RETURNED', returnReason: `Reopened: ${reason}`, verifiedAt: null, verifiedById: null } });
-  await audit(req, 'REOPEN', 'Assessment', a.id, { status: a.status }, { status: 'RETURNED', reason });
   res.json(u);
 }));
 

@@ -10,6 +10,7 @@ import { ah, idParam, paged, paginationSchema } from '../lib/http.js';
 import { parseTabular } from '../lib/tabular.js';
 import { isValidLrn, normalizeLrn } from '../domain/lrn.js';
 import { computeEffectiveness } from '../domain/effectiveness.js';
+import { assertYearIdAllows } from '../domain/schoolYear.js';
 import { assertLearnerLevel, learnerWhere, sectionInScope, type DataScope } from '../rbac/scope.js';
 
 export const learnersRouter = Router();
@@ -37,6 +38,7 @@ export async function findLearnerInScope(s: DataScope, id: number) {
 async function sectionForWrite(s: DataScope, sectionId: number) {
   const sec = await prisma.section.findUnique({ where: { id: sectionId } });
   if (!sec || !sectionInScope(s, sec)) throw forbidden('You can only enrol learners into your own classes');
+  await assertYearIdAllows(sec.schoolYearId, 'encode');
   return sec;
 }
 
@@ -130,6 +132,7 @@ learnersRouter.post('/enrolments/:id/end', requirePermission('learner:write'), a
   const s = req.scope!;
   const e = await prisma.enrolment.findUnique({ where: { id: idParam(req) }, include: { section: true } });
   if (!e || !sectionInScope(s, e.section)) throw notFound('Enrolment');
+  await assertYearIdAllows(e.schoolYearId, 'encode');
   const b = z.object({ status: z.enum(['TRANSFERRED_OUT', 'DROPPED', 'GRADUATED']), reason: z.string().trim().max(200).optional() }).parse(req.body);
   await prisma.$transaction([
     prisma.enrolment.update({ where: { id: e.id }, data: { isCurrent: false, endedAt: new Date(), endReason: b.reason ?? b.status } }),

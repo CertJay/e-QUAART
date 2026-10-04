@@ -231,10 +231,91 @@ describe('assessment workflow (acceptance criteria)', () => {
     expect(v.body.status).toBe('VERIFIED');
     const edit = await (await asUser(TEACHER)).put(`/assessments/${assessmentId}/results`).send({ entries: [{ learnerId: roster[0].learner.id, competencies: [] , rawScore: 1 }] });
     expect(edit.status).toBe(423);
-    const reopen = await (await asUser(COORD)).post(`/assessments/${assessmentId}/reopen`).send({ reason: 'Correct one learner' });
-    expect(reopen.status).toBe(200);
-    const history = await (await asUser(TEACHER)).get(`/assessments/${assessmentId}/history`);
-    expect(history.body.map((h: { action: string }) => h.action)).toEqual(expect.arrayContaining(['REOPEN', 'VERIFY', 'SUBMIT', 'CREATE']));
+    // The uncontrolled "reopen" shortcut is gone; locked results change only through a correction request.
+    expect((await (await asUser(COORD)).post(`/assessments/${assessmentId}/reopen`).send({ reason: 'Correct one learner' })).status).toBe(404);
+    const detail = await (await asUser(TEACHER)).get(`/assessments/${assessmentId}`);
+    expect(detail.body.canEncode).toBe(true);
+    expect(detail.body.canRequestCorrection).toBe(true);
+    expect(detail.body.lockReason).toContain('correction request');
+  });
+
+  it('corrects a locked result only through an approved correction request (§7.4, AC 14)', async () => {
+    const t = await asUser(TEACHER);
+    const learnerId = roster[2].learner.id; // 4 + 5 of 20 → 45%, Tier 3
+    const result = await prisma.assessmentResult.findFirstOrThrow({ where: { assessmentId, learnerId }, include: { competencyResults: true } });
+    expect(result.tier).toBe('TIER_3');
+    const [c1] = result.competencyResults.sort((x, y) => x.competencyId - y.competencyId);
+    const reason = 'Encoded the wrong column from the answer sheet';
+
+    const tooShort = await t.post('/correction-requests').send({ assessmentResultId: result.id, changes: { competencies: [{ competencyId: c1.competencyId, itemsCorrect: 10 }] }, reason: 'typo' });
+    expect(tooShort.status).toBe(400);
+    const invalid = await t.post('/correction-requests').send({ assessmentResultId: result.id, changes: { competencies: [{ competencyId: c1.competencyId, itemsCorrect: 11 }] }, reason });
+    expect(invalid.status).toBe(400);
+    const same = await t.post('/correction-requests').send({ assessmentResultId: result.id, changes: { competencies: [{ competencyId: c1.competencyId, itemsCorrect: c1.itemsCorrect }] }, reason });
+    expect(same.status).toBe(400);
+
+    const created = await t.post('/correction-requests').send({
+      assessmentResultId: result.id,
+      changes: { competencies: [{ competencyId: c1.competencyId, itemsCorrect: 10 }] },
+      reason,
+      evidence: 'Answer sheet on file, item analysis page 2',
+    });
+    expect(created.status).toBe(201);
+    const fields = created.body.changes.map((c: { field: string; oldValue: unknown; newValue: unknown }) => [c.field, c.oldValue, c.newValue]);
+    expect(fields).toEqual(expect.arrayContaining([['rawScore', 9, 15], [`competency:${c1.competencyId}`, 4, 10]]));
+
+    // Still locked, nothing applied yet; one pending request per result.
+    expect((await prisma.assessmentResult.findUniqueOrThrow({ where: { id: result.id } })).rawScore).toBe(9);
+    const dup = await t.post('/correction-requests').send({ assessmentResultId: result.id, changes: { remarks: 'x' }, reason: 'Another change to the same result' });
+    expect(dup.status).toBe(409);
+    expect((await t.get(`/assessments/${assessmentId}`)).body.pendingCorrections[result.id]).toBe(created.body.id);
+
+    // Separation of duties: the requester cannot decide; another school cannot even see it.
+    expect((await t.post(`/correction-requests/${created.body.id}/decision`).send({ decision: 'APPROVE' })).status).toBe(403);
+    expect((await (await asUser('principal.mes@equaart.local')).get(`/correction-requests/${created.body.id}`)).status).toBe(404);
+    expect((await (await asUser(PRINCIPAL)).post(`/correction-requests/${created.body.id}/decision`).send({ decision: 'REJECT' })).status).toBe(400);
+
+    const queue = await (await asUser(PRINCIPAL)).get('/correction-requests?status=PENDING');
+    expect(queue.body.pendingForMe).toBeGreaterThanOrEqual(1);
+    expect(queue.body.data.find((c: { id: number }) => c.id === created.body.id).canReview).toBe(true);
+
+    const approved = await (await asUser(PRINCIPAL)).post(`/correction-requests/${created.body.id}/decision`).send({ decision: 'APPROVE', note: 'Checked against the answer sheet' });
+    expect(approved.status).toBe(200);
+    expect(approved.body.status).toBe('APPROVED');
+    const after = await prisma.assessmentResult.findUniqueOrThrow({ where: { id: result.id }, include: { assessment: true } });
+    expect(after.rawScore).toBe(15);
+    expect(after.percentage).toBe(75);
+    expect(after.tier).toBe('TIER_2');
+    expect(after.assessment.status).toBe('VERIFIED'); // stays locked
+    expect(await prisma.learningGap.count({ where: { assessmentResultId: result.id, competencyId: c1.competencyId } })).toBe(0);
+
+    const log = await prisma.auditLog.findFirstOrThrow({ where: { action: 'CORRECTION_APPLY', entity: 'AssessmentResult', entityId: String(result.id) } });
+    expect(log.beforeJson).toMatchObject({ rawScore: 9, tier: 'TIER_3' });
+    expect(log.afterJson).toMatchObject({ rawScore: 15, tier: 'TIER_2', correctionRequestId: created.body.id, reason });
+    const history = await t.get(`/assessments/${assessmentId}/history`);
+    expect(history.body.map((h: { action: string }) => h.action)).toEqual(expect.arrayContaining(['CORRECTION_APPLY', 'VERIFY', 'SUBMIT', 'CREATE']));
+    expect((await (await asUser(PRINCIPAL)).post(`/correction-requests/${created.body.id}/decision`).send({ decision: 'APPROVE' })).status).toBe(409);
+  });
+
+  it('lets a reviewer reject and a requester cancel a correction request', async () => {
+    const t = await asUser(TEACHER);
+    const result = await prisma.assessmentResult.findFirstOrThrow({ where: { assessmentId, learnerId: roster[0].learner.id } });
+    const first = await t.post('/correction-requests').send({ assessmentResultId: result.id, changes: { remarks: 'Took the test on make-up day' }, reason: 'Remark was left out during encoding' });
+    expect(first.status).toBe(201);
+    const rejected = await (await asUser(COORD)).post(`/correction-requests/${first.body.id}/decision`).send({ decision: 'REJECT', note: 'Remarks are not part of the official result' });
+    expect(rejected.body.status).toBe('REJECTED');
+    expect((await prisma.assessmentResult.findUniqueOrThrow({ where: { id: result.id } })).remarks).toBeNull();
+
+    const second = await t.post('/correction-requests').send({ assessmentResultId: result.id, changes: { remarks: 'Make-up test' }, reason: 'Remark was left out during encoding' });
+    expect((await (await asUser(COORD)).post(`/correction-requests/${second.body.id}/cancel`)).status).toBe(403);
+    const cancelled = await t.post(`/correction-requests/${second.body.id}/cancel`);
+    expect(cancelled.body.status).toBe('CANCELLED');
+  });
+
+  it('refuses correction requests for results that are not locked', async () => {
+    const draft = await prisma.assessmentResult.findFirstOrThrow({ where: { assessment: { sectionId: teacherSection.id, status: 'DRAFT', schoolYearId: sy.id } } });
+    const res = await (await asUser(TEACHER)).post('/correction-requests').send({ assessmentResultId: draft.id, changes: { remarks: 'x' }, reason: 'Trying to correct a draft result' });
+    expect(res.status).toBe(409);
   });
 
   it('classifies a CRLA "Full Refresher" as Tier 3 without any percentage rule', async () => {
@@ -445,6 +526,81 @@ describe('reports & exports', () => {
   it('refuses learner reports for aggregate-only roles', async () => {
     const l = await prisma.learner.findFirstOrThrow();
     expect((await (await asUser('eps.math@equaart.local')).get(`/reports/learner?learnerId=${l.id}`)).status).toBe(403);
+  });
+});
+
+describe('school-year lifecycle (§7.1, §7.3)', () => {
+  const ICT = 'ict@equaart.local'; // System Administrator
+
+  it('treats a closed school year as read-only history, in the API and the database (AC 2, 3)', async () => {
+    const teacher = await prisma.user.findUniqueOrThrow({ where: { email: TEACHER } });
+    const past = await prisma.assessment.findFirstOrThrow({
+      where: { schoolYear: { status: 'CLOSED' }, section: { adviserId: teacher.id }, status: 'VERIFIED', results: { some: {} } },
+      include: { results: { take: 1 } },
+    });
+    const t = await asUser(TEACHER);
+    const view = await t.get(`/assessments/${past.id}`);
+    expect(view.status).toBe(200);
+    expect(view.body.canEncode).toBe(false);
+    expect(view.body.canRequestCorrection).toBe(false);
+    expect(view.body.lockReason).toContain('read-only');
+
+    const edit = await t.put(`/assessments/${past.id}/results`).send({ entries: [{ learnerId: past.results[0].learnerId, rawScore: 1 }] });
+    expect(edit.status).toBe(423);
+    expect(edit.body.error.code).toBe('SCHOOL_YEAR_LOCKED');
+    const corr = await t.post('/correction-requests').send({ assessmentResultId: past.results[0].id, changes: { remarks: 'x' }, reason: 'Change last year’s result' });
+    expect(corr.status).toBe(423);
+    const learner = await prisma.learner.findFirstOrThrow({ where: { enrolments: { some: { sectionId: teacherSection.id, isCurrent: true } } } });
+    expect((await t.post('/learners/enrol-existing').send({ lrn: learner.lrn, lastName: learner.lastName, sectionId: past.sectionId })).status).toBe(423);
+
+    // Even a direct database write is refused by the closed-year triggers.
+    const id = past.results[0].id;
+    await expect(prisma.$executeRaw`UPDATE "AssessmentResult" SET "rawScore" = 0 WHERE "id" = ${id}`).rejects.toThrow(/SCHOOL_YEAR_READ_ONLY/);
+    await expect(prisma.assessmentResult.update({ where: { id }, data: { rawScore: 0 } })).rejects.toThrow();
+    await expect(prisma.assessmentResult.delete({ where: { id } })).rejects.toThrow();
+    expect((await prisma.assessmentResult.findUniqueOrThrow({ where: { id } })).rawScore).toBe(past.results[0].rawScore);
+  });
+
+  it('lets only the System Administrator change school-year status, along allowed transitions', async () => {
+    const past = await prisma.schoolYear.findFirstOrThrow({ where: { status: 'CLOSED' } });
+    for (const email of [TEACHER, PRINCIPAL, 'admin@equaart.local']) {
+      expect((await (await asUser(email)).post(`/reference/school-years/${sy.id}/status`).send({ status: 'CLOSING' })).status).toBe(403);
+    }
+    const ict = await asUser(ICT);
+    const back = await ict.post(`/reference/school-years/${past.id}/status`).send({ status: 'OPEN' });
+    expect(back.status).toBe(409);
+    expect(back.body.error.details.allowed).toEqual(['ARCHIVED']);
+    expect((await ict.post(`/reference/school-years/${sy.id}/status`).send({ status: 'CLOSED' })).status).toBe(409); // must pass CLOSING
+    expect((await (await asUser('admin@equaart.local')).put(`/reference/school-years/${past.id}`).send({ isCurrent: true })).status).toBe(409);
+  });
+
+  it('allows only finalization while CLOSING and refuses to close with unfinished records', async () => {
+    const ict = await asUser(ICT);
+    const t = await asUser(TEACHER);
+    const closing = await ict.post(`/reference/school-years/${sy.id}/status`).send({ status: 'CLOSING', note: 'End-of-year validation window' });
+    expect(closing.status).toBe(200);
+    expect(closing.body.status).toBe('CLOSING');
+    try {
+      const draft = await prisma.assessment.findFirstOrThrow({ where: { sectionId: teacherSection.id, status: 'DRAFT', schoolYearId: sy.id, results: { some: {} } }, include: { results: { take: 1 } } });
+      const enc = await t.put(`/assessments/${draft.id}/results`).send({ entries: [{ learnerId: draft.results[0].learnerId, rawScore: 1 }] });
+      expect(enc.status).toBe(423);
+      expect(enc.body.error.message).toContain('closing');
+      const crla = await prisma.assessmentType.findUniqueOrThrow({ where: { code: 'CRLA' } });
+      const fil = await prisma.learningArea.findUniqueOrThrow({ where: { code: 'FIL' } });
+      const created = await t.post('/assessments').send({ assessmentTypeId: crla.id, schoolYearId: sy.id, termId: sy.terms.find((x) => x.code === 'BOSY')!.id, sectionId: teacherSection.id, learningAreaId: fil.id });
+      expect(created.status).toBe(423);
+      // Submitting pending work is still possible (it fails QA here, not the year check).
+      expect((await t.post(`/assessments/${draft.id}/submit`)).body.error.code).toBe('QA_FAILED');
+
+      const close = await ict.post(`/reference/school-years/${sy.id}/status`).send({ status: 'CLOSED' });
+      expect(close.status).toBe(409);
+      expect(close.body.error.code).toBe('UNFINISHED_RECORDS');
+      expect(close.body.error.details.assessments.DRAFT).toBeGreaterThan(0);
+    } finally {
+      expect((await ict.post(`/reference/school-years/${sy.id}/status`).send({ status: 'OPEN' })).status).toBe(200);
+    }
+    const logs = await prisma.auditLog.findMany({ where: { entity: 'SchoolYear', entityId: String(sy.id), action: 'STATUS_CHANGE' } });
+    expect(logs.length).toBeGreaterThanOrEqual(2);
   });
 });
 

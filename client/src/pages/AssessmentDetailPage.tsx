@@ -14,12 +14,17 @@ interface Detail {
   assessmentType: { name: string; code: string; resultMode: 'PERCENTAGE' | 'PROFILE' };
   model: { name: string; isProvisional: boolean; masteryThreshold: number; bands: Band[] };
   competencies: { competencyId: number; itemsTotal: number; competency: { code: string; description: string } }[];
-  gradeLevel: { name: string }; learningArea: { name: string }; section: { id: number; name: string }; school: { name: string }; schoolYear: { label: string }; term: { name: string };
+  gradeLevel: { name: string }; learningArea: { name: string }; section: { id: number; name: string }; school: { name: string }; schoolYear: { label: string; status: 'OPEN' | 'CLOSING' | 'CLOSED' | 'ARCHIVED' }; term: { name: string };
   createdBy: { fullName: string }; verifiedBy: { fullName: string } | null;
   summary: { assessed: number; tier1: number; tier2: number; tier3: number; proficiencyRate: number | null; atRiskRate: number | null; averagePercentage: number | null; absent: number; bands: { id: number; label: string; tier: Tier; color: string; count: number }[]; competencies: { competencyId: number; code: string; description: string; itemsTotal: number; assessed: number; mastered: number; masteryRate: number | null }[] };
   rows: { learner: { id: number; lrn: string; name: string; sex: string }; enrolled: boolean; result: Result | null }[] | null;
   canEncode: boolean;
+  canSubmit: boolean;
   canVerify: boolean;
+  canRequestCorrection: boolean;
+  lockReason: string | null;
+  /** assessmentResultId → pending correction request id */
+  pendingCorrections: Record<string, number>;
 }
 interface Qa { checks: { key: string; label: string; status: 'PASS' | 'WARN' | 'FAIL'; blocking: boolean; count: number; details: string[] }[]; blocking: boolean; passed: number; total: number }
 
@@ -29,7 +34,7 @@ export function AssessmentDetailPage() {
   const q = useApi<Detail>(`/assessments/${id}`, undefined, { staleTime: 0 });
   const qa = useApi<Qa>(`/assessments/${id}/qa`, undefined, { staleTime: 0 });
   const [tab, setTab] = useState<'encode' | 'results' | 'history'>('encode');
-  const [action, setAction] = useState<'return' | 'reopen' | 'import' | null>(null);
+  const [action, setAction] = useState<'return' | 'import' | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   if (q.isLoading) return <Spinner />;
@@ -55,14 +60,13 @@ export function AssessmentDetailPage() {
             <StatusBadge status={a.status} />
             {editable && <Button variant="secondary" onClick={() => api.download(`/assessments/${a.id}/template`, { format: 'xlsx' })}>Download template</Button>}
             {editable && <Button variant="secondary" onClick={() => setAction('import')}>Import results</Button>}
-            {editable && <Button disabled={busy || qa.data?.blocking} title={qa.data?.blocking ? 'Resolve the failing quality checks first' : undefined} onClick={() => run(() => api.post(`/assessments/${a.id}/submit`))}>Submit for verification</Button>}
+            {a.canSubmit && <Button disabled={busy || qa.data?.blocking} title={qa.data?.blocking ? 'Resolve the failing quality checks first' : undefined} onClick={() => run(() => api.post(`/assessments/${a.id}/submit`))}>Submit for verification</Button>}
             {a.status === 'SUBMITTED' && a.canVerify && (
               <>
                 <Button variant="secondary" onClick={() => setAction('return')}>Return for correction</Button>
                 <Button disabled={busy} onClick={() => run(() => api.post(`/assessments/${a.id}/verify`))}>Verify & lock</Button>
               </>
             )}
-            {a.status === 'VERIFIED' && a.canVerify && <Button variant="secondary" onClick={() => setAction('reopen')}>Reopen for correction</Button>}
             {a.status === 'DRAFT' && a.canEncode && <Button variant="ghost" onClick={() => confirm('Delete this draft assessment?') && run(async () => { await api.del(`/assessments/${a.id}`); nav('/assessments'); })}>Delete</Button>}
             {a.status !== 'DRAFT' && <Button variant="secondary" onClick={() => api.download('/reports/assessment', { assessmentId: a.id, format: 'pdf' })}>Report</Button>}
           </>
@@ -70,7 +74,8 @@ export function AssessmentDetailPage() {
       />
       <ErrorBox error={error} />
       {a.status === 'RETURNED' && a.returnReason && <div className="mb-3"><Notice tone="warn"><strong>Returned for correction:</strong> {a.returnReason}</Notice></div>}
-      {a.status === 'VERIFIED' && <div className="mb-3"><Notice>Verified by {a.verifiedBy?.fullName} on {dateTime(a.verifiedAt)}. Results are locked; a verifier can reopen them for correction (logged in the audit trail).</Notice></div>}
+      {a.status === 'VERIFIED' && <div className="mb-3"><Notice>Verified by {a.verifiedBy?.fullName} on {dateTime(a.verifiedAt)}. {a.lockReason}{a.canRequestCorrection && <> Use <strong>Request correction</strong> on a learner's row; a reviewer approves it and every change is logged.</>} <Link className="text-brand hover:underline" to={`/corrections?assessmentId=${a.id}`}>Correction requests →</Link></Notice></div>}
+      {a.status !== 'VERIFIED' && a.lockReason && <div className="mb-3"><Notice tone="warn">{a.lockReason}</Notice></div>}
       {a.model.isProvisional && <div className="mb-3"><Notice tone="warn">Performance levels for {a.assessmentType.name} are provisional — confirm cut-offs/descriptors against the current issuance.</Notice></div>}
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -135,7 +140,7 @@ export function AssessmentDetailPage() {
         onDone={refresh}
         help={<>Use the downloaded template (it lists the class roster). Columns: <code>lrn</code>, {a.assessmentType.resultMode === 'PERCENTAGE' ? <code>score</code> : <><code>descriptor</code> ({a.model.bands.map((b) => b.descriptorKey).join(', ')})</>}{a.competencies.length ? <>, one <code>comp:CODE</code> column per competency (items correct)</> : null}, <code>absent</code> (Y), <code>remarks</code>. Invalid LRNs, duplicates, missing or out-of-range scores and learners not in this class are reported before anything is saved.</>}
       />
-      {(action === 'return' || action === 'reopen') && <ReasonDialog title={action === 'return' ? 'Return for correction' : 'Reopen verified results'} onClose={() => setAction(null)} onSubmit={(reason) => run(() => api.post(`/assessments/${a.id}/${action}`, { reason })).then(() => setAction(null))} />}
+      {action === 'return' && <ReasonDialog title="Return for correction" onClose={() => setAction(null)} onSubmit={(reason) => run(() => api.post(`/assessments/${a.id}/return`, { reason })).then(() => setAction(null))} />}
     </>
   );
 }
@@ -169,6 +174,7 @@ function toGrid(rows: NonNullable<Detail['rows']>, scoreFromComps: boolean): Rec
 
 function EncodingGrid({ a, editable, onSaved }: { a: Detail; editable: boolean; onSaved: () => void }) {
   const rows = a.rows!;
+  const [correcting, setCorrecting] = useState<NonNullable<Detail['rows']>[number] | null>(null);
   const scoreFromComps = a.competencies.length > 0 && a.competencies.reduce((s, c) => s + c.itemsTotal, 0) === a.maxScore;
   const [grid, setGrid] = useState<Record<number, GridRow>>(() => toGrid(rows, scoreFromComps));
   const [dirty, setDirty] = useState<Set<number>>(new Set());
@@ -255,6 +261,7 @@ function EncodingGrid({ a, editable, onSaved }: { a: Detail; editable: boolean; 
               {a.assessmentType.resultMode === 'PERCENTAGE' && <th className="px-2 py-2 text-right">%</th>}
               <th className="px-2 py-2">Performance level</th>
               <th className="px-2 py-2">Remarks</th>
+              {a.canRequestCorrection && <th className="px-2 py-2"><span className="sr-only">Correction</span></th>}
             </tr>
           </thead>
           <tbody>
@@ -307,6 +314,15 @@ function EncodingGrid({ a, editable, onSaved }: { a: Detail; editable: boolean; 
                   <td className="px-2 py-1">
                     <Input className="h-8 min-w-32" disabled={!editable} value={g.remarks} onChange={(e) => update(r.learner.id, { remarks: e.target.value })} aria-label={`${r.learner.name} remarks`} />
                   </td>
+                  {a.canRequestCorrection && (
+                    <td className="whitespace-nowrap px-2 py-1">
+                      {!r.result ? null : a.pendingCorrections[r.result.id] ? (
+                        <Link to={`/corrections?assessmentId=${a.id}`}><Badge tone="amber">Correction pending</Badge></Link>
+                      ) : (
+                        <Button size="sm" variant="ghost" onClick={() => setCorrecting(r)}>Request correction</Button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -314,20 +330,99 @@ function EncodingGrid({ a, editable, onSaved }: { a: Detail; editable: boolean; 
         </table>
       </div>
       {!rows.length && <Empty title="No learners in this class" />}
+      {correcting?.result && <CorrectionDialog a={a} row={correcting} onClose={() => setCorrecting(null)} onDone={() => { setCorrecting(null); onSaved(); }} />}
     </Card>
+  );
+}
+
+/** Propose new values for one locked result (spec §7.4). Only changed fields are sent. */
+function CorrectionDialog({ a, row, onClose, onDone }: { a: Detail; row: NonNullable<Detail['rows']>[number]; onClose: () => void; onDone: () => void }) {
+  const r = row.result!;
+  const scoreFromComps = a.competencies.length > 0 && a.competencies.reduce((s, c) => s + c.itemsTotal, 0) === a.maxScore;
+  const initial = useMemo(() => toGrid([row], scoreFromComps)[row.learner.id], [row, scoreFromComps]);
+  const [g, setG] = useState<GridRow>(initial);
+  const [reason, setReason] = useState('');
+  const [evidence, setEvidence] = useState('');
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const opts = { mode: a.assessmentType.resultMode, maxScore: a.maxScore, comps: a.competencies.map((c) => ({ competencyId: c.competencyId, itemsTotal: c.itemsTotal })) };
+  const probs = g.isAbsent ? [] : rowProblems(g, opts);
+  const score = g.isAbsent ? null : effectiveScore(g, opts);
+  const p = a.assessmentType.resultMode === 'PERCENTAGE' ? previewPercentage(score !== null && !Number.isNaN(score) ? score : null, a.maxScore) : null;
+  const band = g.isAbsent ? null : previewBand(a.model.bands, a.assessmentType.resultMode, p, g.descriptor || null);
+
+  const changes: Record<string, unknown> = {};
+  if (g.isAbsent !== initial.isAbsent) changes.isAbsent = g.isAbsent;
+  if (!scoreFromComps && g.rawScore !== initial.rawScore) changes.rawScore = g.rawScore === '' ? null : Number(g.rawScore);
+  if (g.descriptor !== initial.descriptor) changes.descriptor = g.descriptor || null;
+  if (g.remarks !== initial.remarks) changes.remarks = g.remarks || null;
+  const comps = a.competencies.filter((c) => (g.comps[c.competencyId] ?? '') !== (initial.comps[c.competencyId] ?? ''));
+  if (comps.length) changes.competencies = comps.map((c) => ({ competencyId: c.competencyId, itemsCorrect: g.comps[c.competencyId] === '' || g.comps[c.competencyId] === undefined ? null : Number(g.comps[c.competencyId]) }));
+  const changed = Object.keys(changes).length > 0;
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post('/correction-requests', { assessmentResultId: r.id, changes, reason: reason.trim(), evidence: evidence.trim() || null });
+      onDone();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title={`Request correction · ${row.learner.name}`} footer={<>
+      <Button variant="secondary" onClick={onClose}>Cancel</Button>
+      <Button disabled={busy || !changed || probs.length > 0 || reason.trim().length < 10} onClick={submit}>{busy ? 'Sending…' : 'Send for review'}</Button>
+    </>}>
+      <div className="space-y-3 text-sm">
+        <Notice>The result stays locked until another authorized reviewer approves this request. The old value, new value, your reason and the reviewer's decision are kept in the audit trail.</Notice>
+        <ErrorBox error={error} />
+        <label className="flex items-center gap-2"><input type="checkbox" checked={g.isAbsent} onChange={(e) => setG({ ...g, isAbsent: e.target.checked })} /> Learner was absent</label>
+        {!g.isAbsent && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {a.competencies.map((c) => (
+              <Field key={c.competencyId} label={`${c.competency.code} (of ${c.itemsTotal})`} hint={(initial.comps[c.competencyId] ?? '') !== (g.comps[c.competencyId] ?? '') ? `was ${initial.comps[c.competencyId] || '—'}` : undefined}>
+                <Input inputMode="numeric" value={g.comps[c.competencyId] ?? ''} onChange={(e) => setG({ ...g, comps: { ...g.comps, [c.competencyId]: e.target.value } })} />
+              </Field>
+            ))}
+            {a.assessmentType.resultMode === 'PROFILE' ? (
+              <Field label="Level" hint={g.descriptor !== initial.descriptor ? `was ${initial.descriptor || '—'}` : undefined}>
+                <Select value={g.descriptor} onChange={(e) => setG({ ...g, descriptor: e.target.value })} options={a.model.bands.map((b) => ({ value: b.descriptorKey ?? '', label: b.label }))} placeholder="—" />
+              </Field>
+            ) : !scoreFromComps ? (
+              <Field label={`Score (of ${a.maxScore})`} hint={g.rawScore !== initial.rawScore ? `was ${initial.rawScore || '—'}` : undefined}>
+                <Input inputMode="decimal" value={g.rawScore} onChange={(e) => setG({ ...g, rawScore: e.target.value })} />
+              </Field>
+            ) : null}
+          </div>
+        )}
+        <div className="text-xs text-ink-2">
+          New result: {g.isAbsent ? 'Absent' : <>{score ?? '—'}{p != null && ` (${pct(p)})`} · <TierBadge tier={band?.tier} label={band?.label} /></>}
+          {' '}· currently {r.isAbsent ? 'Absent' : <>{r.rawScore ?? '—'}{r.percentage != null && ` (${pct(r.percentage)})`} · <TierBadge tier={r.tier} label={r.band?.label} /></>}
+        </div>
+        {probs.length > 0 && <div className="text-xs text-red-700 dark:text-red-300">{probs.join(' · ')}</div>}
+        <Field label="Remarks"><Input value={g.remarks} onChange={(e) => setG({ ...g, remarks: e.target.value })} /></Field>
+        <Field label="Reason for the correction (required)" hint="What was wrong and how you found out. At least 10 characters."><Textarea value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+        <Field label="Evidence (optional)" hint="e.g. answer sheet on file, item analysis page, test administrator's note"><Input value={evidence} onChange={(e) => setEvidence(e.target.value)} /></Field>
+      </div>
+    </Modal>
   );
 }
 
 function History({ id }: { id: number }) {
   const q = useApi<{ id: number; action: string; entity: string; entityId: string; userEmail: string | null; at: string; beforeJson: Record<string, unknown> | null; afterJson: Record<string, unknown> | null }[]>(`/assessments/${id}/history`, undefined, { staleTime: 0 });
-  const fields = ['rawScore', 'percentage', 'band', 'profileDescriptor', 'isAbsent', 'remarks', 'status', 'reason'];
+  const fields = ['rawScore', 'percentage', 'band', 'profileDescriptor', 'isAbsent', 'remarks', 'status', 'reason', 'approvedBy'];
   return (
     <Card pad={false} title="Change history" subtitle="Who entered or changed what, when, with previous and new values.">
       {q.isLoading ? <Spinner /> : (
         <Table dense rows={q.data ?? []} rowKey={(r) => r.id} empty="No changes recorded" columns={[
           { key: 'at', label: 'When', render: (r) => <span className="whitespace-nowrap text-xs">{dateTime(r.at)}</span> },
           { key: 'user', label: 'By', render: (r) => <span className="text-xs">{r.userEmail ?? 'system'}</span> },
-          { key: 'action', label: 'Action', render: (r) => <Badge tone={r.action === 'VERIFY' ? 'green' : r.action === 'RETURN' || r.action === 'REOPEN' ? 'red' : 'slate'}>{humanize(r.action)}</Badge> },
+          { key: 'action', label: 'Action', render: (r) => <Badge tone={r.action === 'VERIFY' ? 'green' : r.action === 'RETURN' || r.action === 'REOPEN' ? 'red' : r.action === 'CORRECTION_APPLY' ? 'amber' : 'slate'}>{humanize(r.action)}</Badge> },
           { key: 'what', label: 'Record', render: (r) => <span className="text-xs">{r.entity === 'AssessmentResult' ? `Result #${r.entityId}${r.afterJson?.learnerId ? ` (learner ${r.afterJson.learnerId})` : ''}` : 'Assessment'}</span> },
           { key: 'diff', label: 'Previous → new', render: (r) => (
             <span className="text-xs">

@@ -4,7 +4,8 @@ import { prisma, type Tx } from '../db.js';
 
 export type AuditAction =
   | 'CREATE' | 'UPDATE' | 'DELETE' | 'SUBMIT' | 'VERIFY' | 'RETURN' | 'REOPEN'
-  | 'IMPORT' | 'EXPORT' | 'LOGIN' | 'LOGIN_FAILED' | 'LOGOUT' | 'PASSWORD_CHANGE' | 'ENROL' | 'VIEW_LEARNER';
+  | 'IMPORT' | 'EXPORT' | 'LOGIN' | 'LOGIN_FAILED' | 'LOGOUT' | 'PASSWORD_CHANGE' | 'ENROL' | 'VIEW_LEARNER'
+  | 'STATUS_CHANGE' | 'CORRECTION_REQUEST' | 'CORRECTION_APPROVE' | 'CORRECTION_REJECT' | 'CORRECTION_CANCEL' | 'CORRECTION_APPLY';
 
 const toJson = (v: unknown) => (v === undefined || v === null ? Prisma.JsonNull : (JSON.parse(JSON.stringify(v)) as Prisma.InputJsonValue));
 

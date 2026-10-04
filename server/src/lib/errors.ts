@@ -40,6 +40,11 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
     }
   }
+  // Raised by the closed-school-year triggers (see the school_year_lifecycle migration). Raw queries
+  // carry the trigger message; ORM writes surface it only as a generic constraint error (500).
+  if (err instanceof Error && err.message.includes('SCHOOL_YEAR_READ_ONLY')) {
+    return res.status(423).json({ error: { code: 'SCHOOL_YEAR_LOCKED', message: 'Results of a closed school year are read-only' } });
+  }
   if (err && typeof err === 'object' && 'type' in err && (err as { type: string }).type === 'entity.parse.failed') {
     return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Malformed JSON body' } });
   }
