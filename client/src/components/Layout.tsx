@@ -101,7 +101,8 @@ function PeriodPicker() {
       />
       <Select
         aria-label="Term"
-        className="h-8 w-40 text-xs"
+        // Auto width: the box grows to the longest term name ("Beginning of School Year").
+        className="h-8 w-auto min-w-40 text-xs"
         value={p.termId ?? ''}
         disabled={!sy}
         onChange={(e) => p.setTermId(e.target.value ? Number(e.target.value) : undefined)}
