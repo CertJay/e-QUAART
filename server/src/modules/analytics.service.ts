@@ -302,16 +302,22 @@ export async function coverage(scope: DataScope, f: Filters, dim?: Dim) {
   const colExpr = dim ? GAP_DIM_COLS[dim] : undefined;
   if (dim && !colExpr) throw badRequest(`Coverage cannot be grouped by ${dim}`);
   const col = colExpr ? Prisma.raw(colExpr) : null;
+  // Covered = the learner is in an intervention for the same learning area and school year. The
+  // pairs are computed once and joined (DISTINCT, so gap rows are never duplicated) rather than
+  // checked per gap row, which took tens of seconds at division scale.
   const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+    WITH covered AS (
+      SELECT DISTINCT il."learnerId" AS learner_id, i."learningAreaId" AS learning_area_id, i."schoolYearId" AS school_year_id
+      FROM "InterventionLearner" il JOIN "Intervention" i ON i.id = il."interventionId"
+      WHERE i."deletedAt" IS NULL
+    )
     SELECT ${col ? Prisma.sql`${col} AS k,` : Prisma.empty}
       COUNT(DISTINCT lg."learnerId") AS identified,
-      COUNT(DISTINCT lg."learnerId") FILTER (WHERE EXISTS (
-        SELECT 1 FROM "InterventionLearner" il JOIN "Intervention" i ON i.id = il."interventionId"
-        WHERE il."learnerId" = lg."learnerId" AND i."deletedAt" IS NULL AND i."learningAreaId" = lg."learningAreaId" AND i."schoolYearId" = lg."schoolYearId"
-      )) AS covered,
+      COUNT(DISTINCT CASE WHEN cv.learner_id IS NOT NULL THEN lg."learnerId" END) AS covered,
       COUNT(*) AS gaps,
       COUNT(*) FILTER (WHERE lg.status = 'RESOLVED') AS resolved
     FROM "LearningGap" lg
+    LEFT JOIN covered cv ON cv.learner_id = lg."learnerId" AND cv.learning_area_id = lg."learningAreaId" AND cv.school_year_id = lg."schoolYearId"
     JOIN "Section" sec ON sec.id = lg."sectionId"
     JOIN "GradeLevel" g ON g.id = sec."gradeLevelId"
     JOIN "School" sch ON sch.id = lg."schoolId"

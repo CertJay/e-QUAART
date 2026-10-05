@@ -80,7 +80,21 @@ Open http://localhost:5173. Every demo account uses the password **`Equaart#2026
 | `ict@equaart.local` | ICT / System Admin | Accounts and settings only (no academic data) |
 | `dpo@equaart.local` | Data Protection Officer | Audit trail, exports of learner data, retention, breach register |
 
-The demo division has four **fictional** schools, 837 learners, two school years of simulated results (about 20,000), the learning gaps derived from them, and about 260 interventions with reassessments. Luntian Elementary School is deliberately weaker so the "needs technical assistance" flags have something to show.
+`npm run db:seed` loads the **demo** profile. Everything in it is **fictional**:
+
+- nine schools in three districts (elementary, secondary and one integrated school);
+- about 2,600 learners, most with three school years of history: 2024–2025 (archived), 2025–2026 (closed) and 2026–2027 (open);
+- about 2,600 assessments and 79,000 results, with the learning gaps derived from them;
+- about 1,400 interventions with sessions, attendance and reassessments, plus Individual Learning Monitoring Plans;
+- transfers between schools, transfers out and dropouts;
+- correction requests in every state, and a sample entry in the breach register;
+- a few name extensions and leap-day birthdays.
+
+Luntian and Maligaya Elementary Schools are deliberately weaker, so the "needs technical assistance" flags have something to show. Seeding takes about seven minutes.
+
+Extra demo accounts (same password): `mt.<school>@equaart.local` (a master teacher for every school, e.g. `mt.sres`), `principal.<school>@…` and `coordinator.<school>@…` for the new schools (`sres`, `bnhs`, `maes`, `kes`, `pis`), `psds.district1@…`, `psds.district3@…` and `eps.science@…`.
+
+`SEED_PROFILE=standard npm run db:seed` loads the smaller data set the automated tests use: four schools, 837 learners and two school years. The tests always use it.
 
 ## Tests
 

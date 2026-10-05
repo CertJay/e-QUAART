@@ -607,6 +607,7 @@ model InterventionLearner {
   updatedAt      DateTime              @updatedAt
 
   @@unique([interventionId, learnerId])
+  @@index([learnerId])
 }
 
 model Reassessment {

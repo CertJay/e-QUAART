@@ -10,6 +10,14 @@
  * current DepEd / Region IV-A / SDO issuances before production use.
  *
  * Usage: npm run db:seed   (wipes the target database first)
+ *
+ * Profiles (SEED_PROFILE):
+ *   demo      default for `npm run db:seed` / `npm run setup`: nine schools in three districts,
+ *             three school years (2024-25 archived, 2025-26 closed, 2026-27 open), ~2,700
+ *             learners, transfers, ILMPs, correction requests in every state.
+ *   standard  the smaller data set the automated tests are written against (default when
+ *             NODE_ENV=test). Demo-only data draws its random numbers only inside demo branches,
+ *             so the standard data stays identical.
  */
 import { PrismaClient, type Prisma, type ResultMode, type Tier } from '@prisma/client';
 import { hashPassword } from '../src/auth/password.js';
@@ -19,6 +27,9 @@ import { tuneSqlite } from '../src/db.js';
 
 const prisma = new PrismaClient();
 export const DEMO_PASSWORD = 'Equaart#2026';
+const PROFILE = (process.env.SEED_PROFILE ?? (process.env.NODE_ENV === 'test' ? 'standard' : 'demo')) as 'standard' | 'demo';
+if (PROFILE !== 'standard' && PROFILE !== 'demo') throw new Error(`Unknown SEED_PROFILE "${PROFILE}" (use demo or standard)`);
+const DEMO = PROFILE === 'demo';
 
 // ───────────── Deterministic randomness ─────────────
 function mulberry32(seed: number) {
@@ -86,17 +97,35 @@ const COMPETENCY_TEMPLATES: Record<string, string[]> = {
 const HARD = new Set(['MATH:3', 'MATH:4', 'ENG:4', 'FIL:4', 'SCI:5']);
 
 // ───────────── Demo organisation ─────────────
-const SCHOOLS = [
+interface SchoolSeed { key: string; name: string; id: string; district: string; type: string; grades: string[]; sections: string[]; size: number; effect: number; coverage: number }
+const BASE_SCHOOLS: SchoolSeed[] = [
   { key: 'BPES', name: 'Bagong Pag-asa Elementary School', id: '900101', district: 'District I', type: 'ELEMENTARY', grades: ['G1', 'G2', 'G3', 'G4', 'G5', 'G6'], sections: ['Sampaguita', 'Rosal'], size: 24, effect: 0.1, coverage: 0.9 },
   { key: 'MES', name: 'Malinis Elementary School', id: '900102', district: 'District I', type: 'ELEMENTARY', grades: ['G1', 'G2', 'G3', 'G4', 'G5', 'G6'], sections: ['Ilang-Ilang'], size: 27, effect: 0.35, coverage: 0.8 },
   { key: 'LES', name: 'Luntian Elementary School', id: '900201', district: 'District II', type: 'ELEMENTARY', grades: ['G1', 'G2', 'G3', 'G4', 'G5', 'G6'], sections: ['Camia'], size: 26, effect: -0.55, coverage: 0.35 },
   { key: 'TNHS', name: 'Tanglaw National High School', id: '900301', district: 'District II', type: 'SECONDARY', grades: ['G7', 'G8', 'G9', 'G10'], sections: ['Rizal', 'Mabini'], size: 30, effect: 0.0, coverage: 0.7 },
-] as const;
+];
+/** Demo profile only: more schools, a third district and an integrated school. */
+const DEMO_SCHOOLS: SchoolSeed[] = [
+  { key: 'SRES', name: 'Santa Rosa Elementary School', id: '900103', district: 'District I', type: 'ELEMENTARY', grades: ['G1', 'G2', 'G3', 'G4', 'G5', 'G6'], sections: ['Narra', 'Molave'], size: 32, effect: 0.2, coverage: 0.75 },
+  { key: 'BNHS', name: 'Bayanihan National High School', id: '900302', district: 'District I', type: 'SECONDARY', grades: ['G7', 'G8', 'G9', 'G10'], sections: ['Luna', 'Silang', 'Aguinaldo'], size: 38, effect: 0.15, coverage: 0.6 },
+  { key: 'MAES', name: 'Maligaya Elementary School', id: '900202', district: 'District II', type: 'ELEMENTARY', grades: ['G1', 'G2', 'G3', 'G4', 'G5', 'G6'], sections: ['Mangga'], size: 22, effect: -0.25, coverage: 0.5 },
+  { key: 'KES', name: 'Kalayaan Elementary School', id: '900401', district: 'District III', type: 'ELEMENTARY', grades: ['G1', 'G2', 'G3', 'G4', 'G5', 'G6'], sections: ['Jasmine', 'Orchid'], size: 28, effect: -0.1, coverage: 0.65 },
+  { key: 'PIS', name: 'Pag-asa Integrated School', id: '900402', district: 'District III', type: 'INTEGRATED', grades: ['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10'], sections: ['Masigasig'], size: 25, effect: 0.05, coverage: 0.55 },
+];
+const SCHOOLS: SchoolSeed[] = DEMO
+  ? [...BASE_SCHOOLS.map((s) => ({ ...s, size: Math.round(s.size * 1.25) })), ...DEMO_SCHOOLS]
+  : BASE_SCHOOLS;
 
 const FIRST_M = ['Juan', 'Jose', 'Mark', 'John Paul', 'Christian', 'Angelo', 'Carlo', 'Miguel', 'Rafael', 'Joshua', 'Paolo', 'Gabriel', 'Nathaniel', 'Ramon', 'Emmanuel', 'Kyle', 'Justin', 'Adrian', 'Lorenzo', 'Vincent'];
 const FIRST_F = ['Maria', 'Angel', 'Princess', 'Andrea', 'Kristine', 'Nicole', 'Althea', 'Bea', 'Camille', 'Danica', 'Erica', 'Hannah', 'Isabel', 'Jasmine', 'Katrina', 'Leah', 'Mika', 'Patricia', 'Samantha', 'Trisha'];
 const LAST = ['Santos', 'Reyes', 'Cruz', 'Bautista', 'Ocampo', 'Garcia', 'Mendoza', 'Torres', 'Villanueva', 'Ramos', 'Aquino', 'Castillo', 'Flores', 'Gonzales', 'Rivera', 'Navarro', 'Dela Cruz', 'De Leon', 'Salazar', 'Pascual', 'Manalo', 'Soriano', 'Domingo', 'Mercado', 'Tolentino', 'Lopez', 'Francisco', 'Valdez', 'Aguilar', 'Pineda'];
 const MIDDLE = ['Santos', 'Reyes', 'Cruz', 'Lim', 'Tan', 'Go', 'Yap', 'Sy', 'Uy', 'Chua', 'Morales', 'Ignacio'];
+if (DEMO) {
+  FIRST_M.push('Rodel', 'Jericho', 'Mateo', 'Santino', 'Elijah', 'Gian', 'Renz', 'Josiah', 'Niño', 'Ezekiel', 'Aldrin', 'Joaquin', 'Dominic', 'Marco', 'Sebastian');
+  FIRST_F.push('Ma. Theresa', 'Kyla', 'Janelle', 'Shaira', 'Ysabel', 'Precious', 'Mae Ann', 'Rhianne', 'Gwyneth', 'Zia', 'Alyssa', 'Joanna', 'Sofia', 'Lianne', 'Mariel');
+  LAST.push('Dimaculangan', 'Macaraeg', 'Panganiban', 'Lacson', 'Evangelista', 'Sison', 'Buenaventura', 'Del Rosario', 'Magbanua', 'Esguerra', 'Tiongson', 'Dizon', 'Catapang', 'Hernandez', 'Lualhati');
+  MIDDLE.push('Cabrera', 'Dimaano', 'Bernardo', 'Galang', 'Mallari', 'Abad', 'Quiambao', 'Javier');
+}
 
 async function wipe() {
   const tables = await prisma.$queryRaw<{ name: string }[]>`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> '_prisma_migrations'`;
@@ -129,11 +158,12 @@ export async function seed() {
   // Calendar
   const syPast = await prisma.schoolYear.create({ data: { label: '2025-2026', startDate: new Date('2025-06-16'), endDate: new Date('2026-04-15'), isCurrent: false } });
   const syCur = await prisma.schoolYear.create({ data: { label: '2026-2027', startDate: new Date('2026-06-15'), endDate: new Date('2027-04-14'), isCurrent: true } });
+  const syOld = DEMO ? await prisma.schoolYear.create({ data: { label: '2024-2025', startDate: new Date('2024-06-17'), endDate: new Date('2025-04-16'), isCurrent: false } }) : null;
   // DepEd Order No. 009, s. 2026 — three-term school calendar (no quarters).
   // BOSY/EOSY are diagnostic windows (CRLA, Phil-IRI, RMA); T1–T3 carry the End-of-Term examinations.
   const termDefs = [['BOSY', 'Beginning of School Year', 0], ['T1', 'Term 1', 1], ['T2', 'Term 2', 2], ['T3', 'Term 3', 3], ['EOSY', 'End of School Year', 4]] as const;
   const terms: Record<number, Record<string, number>> = {};
-  for (const sy of [syPast, syCur]) {
+  for (const sy of [syPast, syCur, ...(syOld ? [syOld] : [])]) {
     terms[sy.id] = {};
     for (const [code, name, sortOrder] of termDefs) terms[sy.id][code] = (await prisma.term.create({ data: { schoolYearId: sy.id, code, name, sortOrder } })).id;
   }
@@ -212,7 +242,7 @@ export async function seed() {
   // Organisation
   const division = await prisma.division.create({ data: { code: 'SDO-DEMO', name: 'Schools Division Office (Demo)', regionName: 'Region IV-A CALABARZON' } });
   const districts: Record<string, number> = {};
-  for (const d of ['District I', 'District II']) districts[d] = (await prisma.district.create({ data: { name: d, divisionId: division.id } })).id;
+  for (const d of ['District I', 'District II', ...(DEMO ? ['District III'] : [])]) districts[d] = (await prisma.district.create({ data: { name: d, divisionId: division.id } })).id;
   const schools: Record<string, number> = {};
   for (const s of SCHOOLS) schools[s.key] = (await prisma.school.create({ data: { name: s.name, schoolIdDeped: s.id, districtId: districts[s.district], schoolType: s.type, address: `${s.district}, Demo Division` } })).id;
 
@@ -237,12 +267,23 @@ export async function seed() {
     coordinators[s.key] = (await mkUser(`coordinator.${k}@equaart.local`, `Assessment Coordinator, ${s.name}`, 'ASSESSMENT_COORDINATOR', 'Master Teacher I / School Testing Coordinator', [{ scopeType: 'SCHOOL', school: { connect: { id: schools[s.key] } } }])).id;
   }
   users.mt = (await mkUser('mt.bpes@equaart.local', 'Rowena T. Salcedo', 'MASTER_TEACHER', 'Master Teacher II', [{ scopeType: 'SCHOOL', school: { connect: { id: schools.BPES } } }])).id;
+  if (DEMO) {
+    const mtNames = ['Corazon A. Velasco', 'Edgardo M. Palma', 'Teresita L. Ilagan', 'Florante C. Bañez', 'Imelda S. Roxas', 'Reynaldo P. Gatchalian', 'Lourdes G. Atienza', 'Wilfredo D. Cuevas'];
+    for (const [i, s] of SCHOOLS.filter((x) => x.key !== 'BPES').entries()) {
+      await mkUser(`mt.${s.key.toLowerCase()}@equaart.local`, mtNames[i % mtNames.length], 'MASTER_TEACHER', 'Master Teacher I', [{ scopeType: 'SCHOOL', school: { connect: { id: schools[s.key] } } }]);
+    }
+    await mkUser('psds.district1@equaart.local', 'Marites D. Javier', 'PSDS', 'Public Schools District Supervisor – District I', [{ scopeType: 'DISTRICT', district: { connect: { id: districts['District I'] } } }]);
+    await mkUser('psds.district3@equaart.local', 'Rolando V. Mercado', 'PSDS', 'Public Schools District Supervisor – District III', [{ scopeType: 'DISTRICT', district: { connect: { id: districts['District III'] } } }]);
+    await mkUser('eps.science@equaart.local', 'Gemma R. Tolentino', 'EPS', 'Education Program Supervisor – Science', [{ scopeType: 'LEARNING_AREA', learningArea: { connect: { id: la.SCI } } }]);
+  }
 
   // Sections, learners & enrolments
   interface Kid { id: number; theta: number; laSkill: Record<string, number>; sex: 'MALE' | 'FEMALE' }
   interface Sec { id: number; schoolKey: string; gradeCode: string; name: string; adviserId: number; kids: Kid[] }
   const current: Sec[] = [];
-  const past: Sec[] = [];
+  // Earlier school years, most recent first: the same learners one, then two, grades lower.
+  const pastYears: { sy: { id: number; startDate: Date; endDate: Date }; secs: Sec[] }[] = [{ sy: syPast, secs: [] }, ...(syOld ? [{ sy: syOld, secs: [] }] : [])];
+  const past = pastYears[0].secs;
   let lrnSeq = 0;
   const usedEmails = new Set<string>();
   for (const s of SCHOOLS) {
@@ -262,13 +303,16 @@ export async function seed() {
         for (let i = 0; i < n; i++) {
           const sex = rand() < 0.5 ? 'MALE' : 'FEMALE';
           const yob = 2026 - (grade[g].sortOrder + 5);
+          // Demo only (keeps the standard random sequence intact): leap-day births, no middle name, name extensions.
+          const leapDay = DEMO && yob % 4 === 0 && rand() < 0.02;
           learnerRows.push({
             lrn: `${s.id}${String(yob).slice(2)}${String(++lrnSeq).padStart(4, '0')}`,
             firstName: sex === 'MALE' ? pick(FIRST_M) : pick(FIRST_F),
-            middleName: pick(MIDDLE),
+            middleName: DEMO && rand() < 0.05 ? null : pick(MIDDLE),
+            extensionName: DEMO && sex === 'MALE' && rand() < 0.04 ? pick(['Jr.', 'II', 'III']) : null,
             lastName: pick(LAST),
             sex,
-            birthdate: new Date(Date.UTC(yob, Math.floor(rand() * 12), 1 + Math.floor(rand() * 28))),
+            birthdate: leapDay ? new Date(Date.UTC(yob, 1, 29)) : new Date(Date.UTC(yob, Math.floor(rand() * 12), 1 + Math.floor(rand() * 28))),
             createdById: adviser.id,
           });
         }
@@ -278,12 +322,13 @@ export async function seed() {
         current.push({ id: sec.id, schoolKey: s.key, gradeCode: g, name: secName, adviserId: adviser.id, kids });
         if (isDemoTeacher) users.teacher = adviser.id;
 
-        // The same learners one school year earlier (not for entry grades G1 / G7).
-        if (g !== 'G1' && g !== 'G7') {
-          const prevGrade = `G${Number(g.slice(1)) - 1}`;
-          const psec = await prisma.section.create({ data: { name: secName, schoolId: schools[s.key], gradeLevelId: grade[prevGrade].id, schoolYearId: syPast.id, adviserId: adviser.id } });
-          await prisma.enrolment.createMany({ data: created.map((l) => ({ learnerId: l.id, sectionId: psec.id, schoolYearId: syPast.id, dateEnrolled: new Date('2025-06-16'), isCurrent: false, endedAt: new Date('2026-04-15'), endReason: 'Promoted' })) });
-          past.push({ id: psec.id, schoolKey: s.key, gradeCode: prevGrade, name: secName, adviserId: adviser.id, kids });
+        // The same learners in earlier school years, while they were in a grade this school offers.
+        for (const [back, py] of pastYears.entries()) {
+          const prevGrade = `G${Number(g.slice(1)) - (back + 1)}`;
+          if (!s.grades.includes(prevGrade)) break;
+          const psec = await prisma.section.create({ data: { name: secName, schoolId: schools[s.key], gradeLevelId: grade[prevGrade].id, schoolYearId: py.sy.id, adviserId: adviser.id } });
+          await prisma.enrolment.createMany({ data: created.map((l) => ({ learnerId: l.id, sectionId: psec.id, schoolYearId: py.sy.id, dateEnrolled: py.sy.startDate, isCurrent: false, endedAt: py.sy.endDate, endReason: 'Promoted' })) });
+          py.secs.push({ id: psec.id, schoolKey: s.key, gradeCode: prevGrade, name: secName, adviserId: adviser.id, kids });
         }
       }
     }
@@ -371,21 +416,26 @@ export async function seed() {
   }
 
   const d = (s: string) => new Date(s);
-  // Past school year: everything verified.
-  for (const sec of past) {
-    const g = sec.gradeCode;
-    const isKS1 = ['G1', 'G2', 'G3'].includes(g);
-    for (const [termCode, date] of [['BOSY', '2025-07-01'], ['EOSY', '2026-03-20']] as const) {
-      if (isKS1) {
-        await makeAssessment({ sec, syId: syPast.id, termCode, typeCode: 'CRLA', laCode: 'FIL', status: 'VERIFIED', date: d(date), growthBase: -0.45 });
-        await makeAssessment({ sec, syId: syPast.id, termCode, typeCode: 'RMA', laCode: 'MATH', status: 'VERIFIED', date: d(date), growthBase: -0.45 });
-      } else {
-        await makeAssessment({ sec, syId: syPast.id, termCode, typeCode: 'PHIL_IRI', laCode: 'ENG', status: 'VERIFIED', date: d(date), growthBase: -0.45 });
-        await makeAssessment({ sec, syId: syPast.id, termCode, typeCode: 'PHIL_IRI', laCode: 'FIL', status: 'VERIFIED', date: d(date), growthBase: -0.45 });
+  // Past school years: everything verified. Each year back, learners were a grade lower and weaker.
+  for (const [back, py] of pastYears.entries()) {
+    const syId = py.sy.id;
+    const growthBase = -0.45 * (back + 1);
+    const on = (date: string) => d(`${Number(date.slice(0, 4)) - back}${date.slice(4)}`);
+    for (const sec of py.secs) {
+      const g = sec.gradeCode;
+      const isKS1 = ['G1', 'G2', 'G3'].includes(g);
+      for (const [termCode, date] of [['BOSY', '2025-07-01'], ['EOSY', '2026-03-20']] as const) {
+        if (isKS1) {
+          await makeAssessment({ sec, syId, termCode, typeCode: 'CRLA', laCode: 'FIL', status: 'VERIFIED', date: on(date), growthBase });
+          await makeAssessment({ sec, syId, termCode, typeCode: 'RMA', laCode: 'MATH', status: 'VERIFIED', date: on(date), growthBase });
+        } else {
+          await makeAssessment({ sec, syId, termCode, typeCode: 'PHIL_IRI', laCode: 'ENG', status: 'VERIFIED', date: on(date), growthBase });
+          await makeAssessment({ sec, syId, termCode, typeCode: 'PHIL_IRI', laCode: 'FIL', status: 'VERIFIED', date: on(date), growthBase });
+        }
       }
-    }
-    for (const [termCode, date] of [['T1', '2025-08-29'], ['T2', '2025-12-04'], ['T3', '2026-03-20']] as const) {
-      for (const laCode of subjectsFor(g)) await makeAssessment({ sec, syId: syPast.id, termCode, typeCode: 'TERM_EXAM', laCode, status: 'VERIFIED', date: d(date), growthBase: -0.45 });
+      for (const [termCode, date] of [['T1', '2025-08-29'], ['T2', '2025-12-04'], ['T3', '2026-03-20']] as const) {
+        for (const laCode of subjectsFor(g)) await makeAssessment({ sec, syId, termCode, typeCode: 'TERM_EXAM', laCode, status: 'VERIFIED', date: on(date), growthBase });
+      }
     }
   }
   // Current school year: BOSY and Term 1 finalized, Term 2 end-of-term examination in progress.
@@ -526,8 +576,137 @@ export async function seed() {
     }
   }
 
-  // The previous school year is history: read-only from here on (spec §7.1).
+  if (DEMO) {
+    // ───────────── Demo-only richness ─────────────
+    // Older year's interventions, and Term 2 support already starting in the current year.
+    const old = pastYears[1];
+    if (old) {
+      await makeInterventions(old.secs, old.sy.id, 'T1', d('2024-09-16'), 0.95);
+      await makeInterventions(old.secs, old.sy.id, 'T2', d('2024-12-16'), 0.9);
+    }
+    await makeInterventions(pastYears[0].secs, syPast.id, 'T3', d('2026-03-23'), 0.8);
+    await makeInterventions(current, syCur.id, 'T2', d('2026-12-14'), 0.05);
+
+    // Individual Learning Monitoring Plans for some Tier 3 learners.
+    const tier3 = await prisma.assessmentResult.findMany({
+      where: { tier: 'TIER_3', assessment: { schoolYearId: syCur.id, term: { code: 'T1' }, assessmentType: { code: 'TERM_EXAM' } } },
+      include: { assessment: { include: { learningArea: true } }, gaps: { include: { competency: true } } },
+    });
+    let ilmps = 0;
+    for (const r of tier3) {
+      if (rand() > 0.08) continue;
+      const laCode = r.assessment.learningArea.code;
+      const gapText = r.gaps.filter((g) => g.competency).map((g) => `${g.competency!.code} ${g.competency!.description}`).join('; ') || 'Overall level below standard';
+      await prisma.ilmp.create({
+        data: {
+          learnerId: r.learnerId, learningAreaId: r.assessment.learningAreaId, schoolYearId: syCur.id, termId: r.assessment.termId,
+          identifiedGaps: gapText, strategies: `${pick(STRATEGIES[laCode] ?? STRATEGIES.MATH)}; weekly check-in with the parent`,
+          monitoringNotes: rand() < 0.5 ? pick(['Week 2: attends all sessions, still needs prompts', 'Week 3: improving; can now explain steps', 'Parent conference held; home reading log started']) : null,
+          status: pick(['ACTIVE', 'ACTIVE', 'ACTIVE', 'DRAFT', 'COMPLETED']), createdById: r.assessment.createdById,
+        },
+      });
+      ilmps++;
+    }
+
+    // Mobility: transfers out of the division, dropouts, and moves between demo schools.
+    const schoolName = Object.fromEntries(SCHOOLS.map((x) => [x.key, x.name]));
+    let moved = 0;
+    for (const sec of current) {
+      for (const kid of sec.kids) {
+        const r = rand();
+        if (r >= 0.026) continue;
+        const end = (reason: string, at: string) =>
+          prisma.enrolment.updateMany({ where: { learnerId: kid.id, sectionId: sec.id, isCurrent: true }, data: { isCurrent: false, endedAt: d(at), endReason: reason } });
+        if (r < 0.012) {
+          await end('Transferred out of the division', '2026-09-18');
+          await prisma.learner.update({ where: { id: kid.id }, data: { status: 'TRANSFERRED_OUT' } });
+        } else if (r < 0.018) {
+          await end('Dropped (prolonged absence)', '2026-09-30');
+          await prisma.learner.update({ where: { id: kid.id }, data: { status: 'DROPPED' } });
+        } else {
+          const target = current.find((x) => x.gradeCode === sec.gradeCode && x.schoolKey !== sec.schoolKey);
+          if (!target) continue;
+          await end(`Transferred to ${schoolName[target.schoolKey]}`, '2026-09-18');
+          await prisma.enrolment.create({ data: { learnerId: kid.id, sectionId: target.id, schoolYearId: syCur.id, dateEnrolled: d('2026-09-21') } });
+        }
+        moved++;
+      }
+    }
+
+    // Correction requests in every state (spec §7.4).
+    const verified = await prisma.assessmentResult.findMany({
+      where: { isAbsent: false, assessment: { schoolYearId: syCur.id, status: 'VERIFIED', assessmentType: { code: 'TERM_EXAM' } } },
+      include: { competencyResults: true, assessment: { include: { competencies: { include: { competency: true } } } } },
+    });
+    const schoolKeyById = Object.fromEntries(Object.entries(schools).map(([k, id]) => [id, k]));
+    // The first four come from the demo teacher's class, so teacher@ and principal.bpes@ see each state.
+    const plan = ['PENDING', 'PENDING', 'APPROVED', 'REJECTED', 'PENDING', 'PENDING', 'PENDING', 'PENDING', 'PENDING', 'APPROVED', 'APPROVED', 'APPROVED', 'REJECTED', 'REJECTED', 'CANCELLED'] as const;
+    const demoClass = verified.filter((r) => r.assessment.createdById === users.teacher);
+    const reasons = [
+      'Encoded the wrong column from the answer sheet',
+      'Miscounted the items when tallying the test paper',
+      'Learner took the make-up test; the original entry was a placeholder',
+      'Item 7 answer key was corrected after the test was given',
+      'Scores of two learners were swapped during encoding',
+    ];
+    const usedResults = new Set<number>();
+    let corrections = 0;
+    for (const [n, status] of plan.entries()) {
+      const pool = n < 4 && demoClass.length ? demoClass : verified;
+      let r = pick(pool);
+      for (let tries = 0; usedResults.has(r.id) && tries < 20; tries++) r = pick(pool);
+      if (usedResults.has(r.id)) continue;
+      usedResults.add(r.id);
+      const a = r.assessment;
+      const compIds = a.competencies.map((c) => c.competencyId).sort((x, y) => x - y);
+      const items = new Map(r.competencyResults.map((c) => [c.competencyId, c.itemsCorrect]));
+      const base = { learnerId: r.learnerId, rawScore: r.rawScore, descriptor: r.profileDescriptor, isAbsent: false, remarks: r.remarks, competencies: compIds.map((competencyId) => ({ competencyId, itemsCorrect: items.get(competencyId) ?? null })) };
+      let entry;
+      let changes;
+      if (status === 'APPROVED' || status === 'CANCELLED') {
+        const remark = pick(['Make-up test taken on 9 Sept', 'Score confirmed against the answer sheet', 'Learner used a large-print test paper']);
+        entry = { ...base, remarks: remark };
+        changes = [{ field: 'remarks', label: 'Remarks', oldValue: r.remarks, newValue: remark }];
+        if (status === 'APPROVED') await prisma.assessmentResult.update({ where: { id: r.id }, data: { remarks: remark, updatedById: a.createdById } });
+      } else {
+        const c = a.competencies[Math.floor(rand() * a.competencies.length)];
+        const old = items.get(c.competencyId) ?? 0;
+        const next = old < c.itemsTotal ? old + 1 : old - 1;
+        entry = { ...base, rawScore: null, competencies: base.competencies.map((x) => (x.competencyId === c.competencyId ? { ...x, itemsCorrect: next } : x)) };
+        changes = [
+          { field: 'rawScore', label: 'Score', oldValue: r.rawScore, newValue: (r.rawScore ?? 0) + (next - old) },
+          { field: `competency:${c.competencyId}`, label: `${c.competency.code} (items correct)`, oldValue: old, newValue: next },
+        ];
+      }
+      const requestedAt = d(`2026-09-${String(20 + Math.floor(rand() * 10)).padStart(2, '0')}`);
+      const reviewed = status === 'APPROVED' || status === 'REJECTED';
+      await prisma.correctionRequest.create({
+        data: {
+          assessmentResultId: r.id, assessmentId: a.id, schoolId: a.schoolId, sectionId: a.sectionId, schoolYearId: a.schoolYearId,
+          changes: changes as unknown as Prisma.InputJsonValue, proposed: { entry, base } as unknown as Prisma.InputJsonValue,
+          reason: pick(reasons), evidence: rand() < 0.6 ? 'Answer sheet on file with the class adviser' : null, status,
+          requestedById: a.createdById, createdAt: requestedAt,
+          reviewedById: reviewed ? principals[schoolKeyById[a.schoolId]] : null,
+          reviewedAt: reviewed ? new Date(requestedAt.getTime() + 2 * 86400000) : null,
+          reviewNote: status === 'REJECTED' ? 'The answer sheet supports the original score.' : status === 'APPROVED' ? 'Checked and approved.' : null,
+        },
+      });
+      corrections++;
+    }
+
+    await prisma.breachIncident.create({
+      data: {
+        title: 'Class list sent to the wrong group chat', description: 'A Grade 5 class list with LRNs was posted to a parents’ group chat of another section and deleted after 10 minutes.',
+        discoveredAt: d('2026-08-12'), affectedRecords: 31, status: 'CLOSED', actionsTaken: 'Message deleted; parents asked to delete copies; staff reminded of the data-sharing protocol.',
+        createdById: users.dpo,
+      },
+    });
+    console.log(`  demo extras: ${ilmps} ILMPs, ${moved} transfers/dropouts, ${corrections} correction requests`);
+  }
+
+  // Earlier school years are history: read-only from here on (spec §7.1).
   await prisma.schoolYear.update({ where: { id: syPast.id }, data: { status: 'CLOSED' } });
+  if (syOld) await prisma.schoolYear.update({ where: { id: syOld.id }, data: { status: 'ARCHIVED' } });
 
   // ───────────── Governance defaults ─────────────
   await prisma.retentionPolicy.createMany({
@@ -542,7 +721,7 @@ export async function seed() {
   await prisma.auditLog.create({ data: { action: 'CREATE', entity: 'System', entityId: 'seed', afterJson: { note: 'Demo data seeded', assessments: assessmentCount, interventions: interventionCount } } });
 
   const [learners, results, gaps] = await Promise.all([prisma.learner.count(), prisma.assessmentResult.count(), prisma.learningGap.count()]);
-  console.log(`Seeded ${learners} learners, ${assessmentCount} assessments, ${results} results, ${gaps} learning gaps, ${interventionCount} interventions in ${((Date.now() - t0) / 1000).toFixed(1)}s.`);
+  console.log(`[${PROFILE} profile] Seeded ${learners} learners, ${assessmentCount} assessments, ${results} results, ${gaps} learning gaps, ${interventionCount} interventions in ${((Date.now() - t0) / 1000).toFixed(1)}s.`);
   console.log(`Demo password for every account: ${DEMO_PASSWORD}`);
 }
 
