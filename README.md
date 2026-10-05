@@ -1,8 +1,8 @@
-# E-QuAART — Electronic Quality Assured Assessment Result Tool
+# e-QuAART — Electronic Quality Assured Assessment Result Tool
 
 Division/School-Based Assessment Results Management, Analytics, Intervention, and Monitoring System.
 
-E-QuAART takes assessment results and turns them into instructional action:
+e-QuAART takes assessment results and turns them into instructional action:
 
 ```
 Assessment → Data capture → Quality assurance → Analysis → Learning gaps

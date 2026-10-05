@@ -1,4 +1,4 @@
-// E-QuAART data model
+// e-QuAART data model
 //
 // Hierarchy (data-scoping spine):
 //   Division → District → School → SchoolYear/Term → KeyStage → GradeLevel → Section → Learner

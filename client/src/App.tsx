@@ -54,7 +54,7 @@ export function App() {
   return (
     <ThemeContext.Provider value={themeValue}>
       {loading ? (
-        <div className="flex min-h-screen items-center justify-center"><Spinner label="Starting E-QuAART…" /></div>
+        <div className="flex min-h-screen items-center justify-center"><Spinner label="Starting e-QuAART…" /></div>
       ) : !user ? (
         <Routes>
           <Route path="*" element={<LoginPage />} />

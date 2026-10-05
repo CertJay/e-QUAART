@@ -92,7 +92,7 @@ export function EnrolExistingForm({ open, onClose, sectionId, onSaved }: { open:
   return (
     <Modal open={open} onClose={onClose} title="Enrol an existing learner" footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button form="enrol-form" type="submit" disabled={busy}>{busy ? 'Enrolling…' : 'Enrol'}</Button></>}>
       <form id="enrol-form" onSubmit={submit} className="space-y-3">
-        <p className="text-sm text-ink-2">For transferees and learners already registered in E-QuAART. Enter the LRN and last name exactly as recorded; the learner's history comes with them.</p>
+        <p className="text-sm text-ink-2">For transferees and learners already registered in e-QuAART. Enter the LRN and last name exactly as recorded; the learner's history comes with them.</p>
         <Field label="LRN"><Input required inputMode="numeric" maxLength={16} value={lrn} onChange={(e) => setLrn(e.target.value)} /></Field>
         <Field label="Last name"><Input required maxLength={LIMITS.learnerName} value={lastName} onChange={(e) => setLastName(e.target.value)} /></Field>
         <ErrorBox error={error} />

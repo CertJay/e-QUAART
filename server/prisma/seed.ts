@@ -1,5 +1,5 @@
 /**
- * Demo seed for E-QuAART.
+ * Demo seed for e-QuAART.
  *
  * Creates reference data (key stages, grade levels, learning areas, assessment types and
  * classification models), a demo division with four fictional schools, two school years of

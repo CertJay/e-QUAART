@@ -1,4 +1,4 @@
-# E-QuAART architecture
+# e-QuAART architecture
 
 ## 1. Shape of the system
 

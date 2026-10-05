@@ -1,4 +1,4 @@
-# E-QuAART (API + web client in one container, SQLite database on a volume at /data)
+# e-QuAART (API + web client in one container, SQLite database on a volume at /data)
 FROM node:22-slim AS build
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*

@@ -379,7 +379,7 @@ function toCsv(r: Report) {
 
 async function toXlsx(r: Report) {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'E-QuAART';
+  wb.creator = 'e-QuAART';
   const used = new Set<string>();
   for (const s of r.sections) {
     let name = s.heading.replace(/[\\/?*[\]:]/g, '').slice(0, 28) || 'Sheet';
@@ -402,13 +402,13 @@ async function toXlsx(r: Report) {
 
 function toPdf(r: Report, generatedBy: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 36, bufferPages: true, info: { Title: r.title, Author: 'E-QuAART' } });
+    const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 36, bufferPages: true, info: { Title: r.title, Author: 'e-QuAART' } });
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
     const W = doc.page.width - 72;
-    doc.fillColor('#1e3a8a').fontSize(9).font('Helvetica-Bold').text('E-QuAART · Electronic Quality Assured Assessment Result Tool', { align: 'left' });
+    doc.fillColor('#1e3a8a').fontSize(9).font('Helvetica-Bold').text('e-QuAART · Electronic Quality Assured Assessment Result Tool', { align: 'left' });
     doc.fillColor('#111827').fontSize(16).text(r.title);
     doc.font('Helvetica').fontSize(9).fillColor('#4b5563');
     if (r.subtitle) doc.text(r.subtitle);

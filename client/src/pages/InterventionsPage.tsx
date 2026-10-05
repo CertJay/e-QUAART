@@ -39,7 +39,7 @@ export function InterventionsPage() {
             <li>Each intervention targets a learning area and, usually, specific competencies.</li>
             <li>Every learner's pre-intervention result is recorded as a baseline when they are added.</li>
             <li>Sessions and attendance show implementation; reassessment shows the effect.</li>
-            <li>E-QuAART suggests options (continue, modify, complete, repeat, refer) from the data — the teacher decides.</li>
+            <li>e-QuAART suggests options (continue, modify, complete, repeat, refer) from the data — the teacher decides.</li>
           </ol>
         </Card>
       </div>

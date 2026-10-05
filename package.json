@@ -2,7 +2,7 @@
   "name": "e-quaart",
   "private": true,
   "version": "0.1.0",
-  "description": "E-QuAART — Electronic Quality Assured Assessment Result Tool",
+  "description": "e-QuAART — Electronic Quality Assured Assessment Result Tool",
   "workspaces": [
     "server",
     "client"

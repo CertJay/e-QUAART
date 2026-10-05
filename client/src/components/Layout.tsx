@@ -25,7 +25,7 @@ export function Layout() {
         <div className="flex h-14 items-center gap-2 border-b border-line px-4">
           <img src="/favicon.svg" alt="" className="h-7 w-7" />
           <div className="leading-tight">
-            <div className="text-sm font-bold tracking-tight text-ink">E-QuAART</div>
+            <div className="text-sm font-bold tracking-tight text-ink">e-QuAART</div>
             <div className="text-[10px] text-ink-3">Quality Assured Assessment Results</div>
           </div>
         </div>
@@ -72,7 +72,7 @@ export function Layout() {
           <Outlet />
         </main>
         <footer className="px-6 pb-6 text-center text-[11px] text-ink-3">
-          E-QuAART handles learner personal information under the Data Privacy Act of 2012 (RA 10173). Access is logged.
+          e-QuAART handles learner personal information under the Data Privacy Act of 2012 (RA 10173). Access is logged.
         </footer>
       </div>
       {!user.privacyAcceptedAt && <PrivacyNotice />}

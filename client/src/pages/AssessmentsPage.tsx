@@ -126,7 +126,7 @@ function NewAssessment({ presetSection, onClose, onCreated }: { presetSection: s
       {section && v.learningAreaId && (
         <div className="mt-4">
           <div className="mb-1 text-xs font-medium text-ink-2">6. Competencies measured (items per competency)</div>
-          <p className="mb-2 text-xs text-ink-3">Enter the number of items for each competency the test measures. This is what lets E-QuAART pinpoint learning gaps instead of reporting only a total score.</p>
+          <p className="mb-2 text-xs text-ink-3">Enter the number of items for each competency the test measures. This is what lets e-QuAART pinpoint learning gaps instead of reporting only a total score.</p>
           {comps.isLoading ? <Spinner /> : !comps.data?.length ? <Notice tone="warn">No competencies are configured for this grade and learning area. Results will be recorded as totals only.</Notice> : (
             <div className="max-h-64 space-y-1 overflow-y-auto rounded border border-line p-2">
               {comps.data.map((c) => (

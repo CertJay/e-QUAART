@@ -40,7 +40,7 @@ export function LoginPage() {
         <div className="mb-6 flex items-center gap-3">
           <img src="/favicon.svg" alt="" className="h-11 w-11" />
           <div>
-            <h1 className="text-xl font-bold text-ink">E-QuAART</h1>
+            <h1 className="text-xl font-bold text-ink">e-QuAART</h1>
             <p className="text-xs text-ink-3">Electronic Quality Assured Assessment Result Tool</p>
           </div>
         </div>

@@ -30,7 +30,7 @@ export function PrivacyNotice() {
       }
     >
       <div className="space-y-3 text-sm text-ink-2">
-        <p>E-QuAART processes personal information of learners — names, Learner Reference Numbers, and assessment results — to support instruction, intervention and monitoring by DepEd personnel.</p>
+        <p>e-QuAART processes personal information of learners — names, Learner Reference Numbers, and assessment results — to support instruction, intervention and monitoring by DepEd personnel.</p>
         <ul className="list-disc space-y-1 pl-5">
           <li>Use learner information only for the legitimate educational purpose of your role.</li>
           <li>Do not share screens, exports or printouts with anyone who does not have a need to know.</li>
