@@ -748,6 +748,27 @@ model AuditLog {
   @@index([at])
 }
 
+/**
+ * Double-submission guard: a client sends an `Idempotency-Key` header with a create request; a
+ * retry or second click with the same key replays the first response instead of creating twice.
+ */
+model IdempotencyKey {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  key            String
+  method         String
+  path           String
+  requestHash    String
+  state          String // IN_PROGRESS | DONE
+  responseStatus Int?
+  responseBody   Json?
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+
+  @@unique([userId, key])
+  @@index([expiresAt])
+}
+
 model SystemSetting {
   key         String   @id
   value       Json

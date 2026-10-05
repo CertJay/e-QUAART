@@ -1,6 +1,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { z } from 'zod';
 import { badRequest } from './errors.js';
+import { MAX_ID } from '../domain/validation.js';
 
 /** Wrap an async handler so rejections reach the error middleware. */
 export const ah =
@@ -11,11 +12,11 @@ export const ah =
 
 export const idParam = (req: Request, name = 'id'): number => {
   const n = Number(req.params[name]);
-  if (!Number.isInteger(n) || n <= 0) throw badRequest(`Invalid ${name}`);
+  if (!Number.isInteger(n) || n <= 0 || n > MAX_ID) throw badRequest(`Invalid ${name}`);
   return n;
 };
 
-export const optionalInt = z.preprocess((v) => (v === '' || v === undefined || v === null ? undefined : Number(v)), z.number().int().positive().optional());
+export const optionalInt = z.preprocess((v) => (v === '' || v === undefined || v === null ? undefined : Number(v)), z.number().int().positive().max(MAX_ID).optional());
 export const optionalDate = z.preprocess((v) => (v === '' || v === undefined || v === null ? undefined : new Date(String(v))), z.date().optional());
 export const nullableDate = z.preprocess((v) => (v === '' || v === null ? null : v === undefined ? undefined : new Date(String(v))), z.date().nullable().optional());
 

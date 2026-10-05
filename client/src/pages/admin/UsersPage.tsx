@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { api, type Paged, type Role } from '../../api/client';
+import { api, ApiError, type Paged, type Role } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { Badge, Button, Card, ErrorBox, Field, Input, Modal, Notice, PageHeader, Pagination, Select, Spinner, Table } from '../../components/ui';
 import { dateTime } from '../../lib/format';
 import { useApi, useBootstrap } from '../../lib/hooks';
+import { LIMITS, requestKey } from '../../lib/validation';
 
 const ROLES: { value: Role; label: string; scope: 'SCHOOL' | 'DISTRICT' | 'LEARNING_AREA' | 'DIVISION' }[] = [
   { value: 'TEACHER', label: 'Teacher', scope: 'SCHOOL' },
@@ -19,7 +20,7 @@ const ROLES: { value: Role; label: string; scope: 'SCHOOL' | 'DISTRICT' | 'LEARN
 ];
 
 interface Scope { scopeType: string; divisionId?: number | null; districtId?: number | null; schoolId?: number | null; learningAreaId?: number | null; school?: { name: string } | null; district?: { name: string } | null; learningArea?: { name: string } | null; division?: { name: string } | null }
-interface UserRow { id: number; email: string; fullName: string; position: string | null; role: Role; isActive: boolean; lastLoginAt: string | null; lockedUntil: string | null; scopes: Scope[] }
+interface UserRow { id: number; email: string; fullName: string; position: string | null; role: Role; isActive: boolean; lastLoginAt: string | null; lockedUntil: string | null; updatedAt: string; scopes: Scope[] }
 
 export function UsersPage() {
   const [search, setSearch] = useState('');
@@ -61,36 +62,45 @@ function UserForm({ user, onClose, onSaved }: { user: UserRow | null; onClose: (
   const [v, setV] = useState({ email: user?.email ?? '', fullName: user?.fullName ?? '', position: user?.position ?? '', role: user?.role ?? 'TEACHER', isActive: user?.isActive ?? true });
   const [refs, setRefs] = useState<number[]>(() => (user?.scopes ?? []).map((s) => s.schoolId ?? s.districtId ?? s.learningAreaId ?? s.divisionId ?? 0).filter(Boolean));
   const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const [key, setKey] = useState(requestKey);
   const scopeKind = ROLES.find((r) => r.value === v.role)!.scope;
   const options = scopeKind === 'SCHOOL' ? boot?.schools : scopeKind === 'DISTRICT' ? boot?.districts : scopeKind === 'LEARNING_AREA' ? boot?.learningAreas : boot?.divisions;
   const scopes = scopeKind === 'DIVISION'
     ? [{ scopeType: 'DIVISION', divisionId: boot?.divisions[0]?.id }]
     : refs.map((id) => ({ scopeType: scopeKind, [scopeKind === 'SCHOOL' ? 'schoolId' : scopeKind === 'DISTRICT' ? 'districtId' : 'learningAreaId']: id }));
   const save = async () => {
+    if (busy) return;
+    setBusy(true);
     setError(null);
     try {
       if (user) {
-        await api.put(`/users/${user.id}`, { ...v, position: v.position || null, scopes });
+        await api.put(`/users/${user.id}`, { ...v, position: v.position || null, scopes, expectedUpdatedAt: user.updatedAt });
         onSaved();
       } else {
-        const r = await api.post<{ temporaryPassword: string; email: string }>('/users', { ...v, position: v.position || null, scopes });
+        const r = await api.post<{ temporaryPassword: string; email: string }>('/users', { ...v, position: v.position || null, scopes }, { idempotencyKey: key });
         onSaved({ email: r.email, password: r.temporaryPassword });
       }
       onClose();
-    } catch (e) { setError(e); }
+    } catch (e) {
+      setError(e);
+      if (e instanceof ApiError && e.status < 500) setKey(requestKey());
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <Modal open onClose={onClose} title={user ? 'Edit user' : 'New user'} footer={
       <>
         {user && <Button variant="ghost" onClick={async () => { try { const r = await api.post<{ temporaryPassword: string }>(`/users/${user.id}/reset-password`); onSaved({ email: user.email, password: r.temporaryPassword }); onClose(); } catch (e) { setError(e); } }}>Reset password</Button>}
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button onClick={save}>Save</Button>
+        <Button disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</Button>
       </>
     }>
       <div className="grid gap-3">
-        <Field label="Full name"><Input value={v.fullName} onChange={(e) => setV({ ...v, fullName: e.target.value })} /></Field>
-        <Field label="Email (DepEd account)"><Input type="email" value={v.email} onChange={(e) => setV({ ...v, email: e.target.value })} /></Field>
-        <Field label="Position / designation"><Input value={v.position} onChange={(e) => setV({ ...v, position: e.target.value })} /></Field>
+        <Field label="Full name"><Input maxLength={LIMITS.userFullName} value={v.fullName} onChange={(e) => setV({ ...v, fullName: e.target.value })} /></Field>
+        <Field label="Email (DepEd account)"><Input type="email" maxLength={LIMITS.email} value={v.email} onChange={(e) => setV({ ...v, email: e.target.value })} /></Field>
+        <Field label="Position / designation"><Input maxLength={LIMITS.position} value={v.position} onChange={(e) => setV({ ...v, position: e.target.value })} /></Field>
         <Field label="Role"><Select value={v.role} onChange={(e) => { setV({ ...v, role: e.target.value as Role }); setRefs([]); }} options={ROLES.filter((r) => r.value !== 'SYSTEM_ADMIN' || me.role === 'SYSTEM_ADMIN')} /></Field>
         {scopeKind !== 'DIVISION' && (
           <Field label={scopeKind === 'SCHOOL' ? 'School' : scopeKind === 'DISTRICT' ? 'District' : 'Learning areas supervised'}>

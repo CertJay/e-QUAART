@@ -703,6 +703,124 @@ describe('school-year lifecycle (§7.1, §7.3)', () => {
   });
 });
 
+describe('data validation for learner and user profiles', () => {
+  const learner = (lrn: string, extra: Record<string, unknown> = {}) => ({
+    lrn, lastName: 'Validacion', firstName: 'Ana', sex: 'FEMALE', birthdate: '2016-02-29', sectionId: teacherSection.id, ...extra,
+  });
+
+  it('reports every invalid field with a precise message and saves nothing', async () => {
+    const t = await asUser(TEACHER);
+    const res = await t.post('/learners').send({
+      lrn: '12345', lastName: 'Cruz2', firstName: 'A'.repeat(81), middleName: 'N/A', extensionName: 'Esq', sex: 'X', birthdate: '2019-02-29', sectionId: teacherSection.id,
+    });
+    expect(res.status).toBe(400);
+    const byField = Object.fromEntries(res.body.error.details.map((d: { path: string; message: string }) => [d.path, d.message]));
+    expect(byField).toMatchObject({
+      lrn: 'LRN must be exactly 12 digits',
+      lastName: 'Last name cannot contain numbers',
+      firstName: 'First name must be at most 80 characters (got 81)',
+      extensionName: expect.stringContaining('Jr.'),
+      sex: 'Sex must be MALE or FEMALE',
+      birthdate: '2019 is not a leap year: February 2019 has 28 days',
+    });
+    expect(byField.middleName).toBeUndefined(); // "N/A" means no middle name
+  });
+
+  it('rejects birthdates in the future or outside the school-age range', async () => {
+    const t = await asUser(TEACHER);
+    const future = await t.post('/learners').send(learner('999999500001', { birthdate: '2099-01-01' }));
+    expect(future.body.error.details[0].message).toBe('Birthdate cannot be in the future');
+    const tooOld = await t.post('/learners').send(learner('999999500001', { birthdate: '1990-01-01' }));
+    expect(tooOld.body.error.details[0].message).toMatch(/maximum is 25/);
+    const withTime = await t.post('/learners').send(learner('999999500001', { birthdate: '2016-03-01T00:00:00+08:00' }));
+    expect(withTime.status).toBe(400);
+  });
+
+  it('stores a leap-day birthdate and normalized names exactly', async () => {
+    const t = await asUser(TEACHER);
+    const res = await t.post('/learners').send(learner('999999500002', { firstName: '  Ma.  Theresa ', middleName: 'na', extensionName: 'jr' }));
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ firstName: 'Ma. Theresa', middleName: null, extensionName: 'Jr.', birthdate: '2016-02-29T00:00:00.000Z' });
+  });
+
+  it('replays a double-submitted create instead of creating twice (Idempotency-Key)', async () => {
+    const t = await asUser(TEACHER);
+    const body = learner('999999500003', { firstName: 'Bea', birthdate: '2016-05-05' });
+    const first = await t.post('/learners').set('Idempotency-Key', 'learner-create-0001').send(body);
+    const second = await t.post('/learners').set('Idempotency-Key', 'learner-create-0001').send(body);
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(second.headers['idempotent-replayed']).toBe('true');
+    expect(second.body.id).toBe(first.body.id);
+    expect(await prisma.learner.count({ where: { lrn: '999999500003' } })).toBe(1);
+    const reused = await t.post('/learners').set('Idempotency-Key', 'learner-create-0001').send({ ...body, firstName: 'Other' });
+    expect(reused.status).toBe(422);
+    expect(reused.body.error.code).toBe('IDEMPOTENCY_KEY_REUSED');
+    expect((await t.post('/learners').set('Idempotency-Key', 'x').send(body)).status).toBe(400);
+  });
+
+  it('lets only one of two simultaneous creates with the same LRN succeed', async () => {
+    const t = await asUser(TEACHER);
+    const body = learner('999999500004', { firstName: 'Carla', birthdate: '2016-07-07' });
+    const results = await Promise.all([t.post('/learners').send(body), t.post('/learners').send(body)]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(await prisma.learner.count({ where: { lrn: '999999500004' } })).toBe(1);
+  });
+
+  it('asks for confirmation before registering a likely duplicate under another LRN', async () => {
+    const t = await asUser(TEACHER);
+    const body = learner('999999500005', { firstName: 'Bea', birthdate: '2016-05-05' }); // same as ...003 but a different LRN
+    const dup = await t.post('/learners').send(body);
+    expect(dup.status).toBe(409);
+    expect(dup.body.error.code).toBe('POSSIBLE_DUPLICATE');
+    expect(dup.body.error.details.matches[0].lrn).toMatch(/0003$/);
+    expect(dup.body.error.details.matches[0].lrn).not.toContain('999999'); // masked
+    expect((await t.post('/learners').send({ ...body, confirmNotDuplicate: true })).status).toBe(201);
+  });
+
+  it('refuses to overwrite a learner edited by someone else since the form was opened', async () => {
+    const t = await asUser(TEACHER);
+    const l = await prisma.learner.findUniqueOrThrow({ where: { lrn: '999999500002' } });
+    const ok = await t.put(`/learners/${l.id}`).send({ firstName: 'Theresa', expectedUpdatedAt: l.updatedAt.toISOString() });
+    expect(ok.status).toBe(200);
+    const stale = await t.put(`/learners/${l.id}`).send({ firstName: 'Tess', expectedUpdatedAt: l.updatedAt.toISOString() });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.code).toBe('STALE_RECORD');
+    expect((await prisma.learner.findUniqueOrThrow({ where: { id: l.id } })).firstName).toBe('Theresa');
+  });
+
+  it('answers out-of-range ids and oversize input with 400, not a server error', async () => {
+    const t = await asUser(TEACHER);
+    expect((await t.get('/learners/99999999999')).status).toBe(400);
+    expect((await t.post('/learners').send(learner('999999500006', { sectionId: 2 ** 40 }))).status).toBe(400);
+    expect((await t.get(`/learners?search=${'a'.repeat(101)}`)).status).toBe(400);
+    const login = await request(app).post('/api/v1/auth/login').send({ email: TEACHER, password: 'x'.repeat(257) });
+    expect(login.status).toBe(400);
+  });
+
+  it('validates user accounts: email format and uniqueness regardless of case, names, concurrency', async () => {
+    const admin = await asUser('admin@equaart.local');
+    const school = await prisma.school.findFirstOrThrow();
+    const scopes = [{ scopeType: 'SCHOOL', schoolId: school.id }];
+    const bad = await admin.post('/users').send({ email: 'not-an-email', fullName: 'X1', role: 'TEACHER', scopes });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.details.map((d: { path: string }) => d.path)).toEqual(expect.arrayContaining(['email', 'fullName']));
+    const dup = await admin.post('/users').send({ email: '  TEACHER@EQUAART.LOCAL ', fullName: 'Someone Else', role: 'TEACHER', scopes });
+    expect(dup.status).toBe(409);
+    expect(dup.body.error.message).toBe('An account with this email already exists');
+
+    const created = await admin.post('/users').set('Idempotency-Key', 'user-create-0001').send({ email: 'valid.user@deped.gov.ph', fullName: 'Valid User', role: 'TEACHER', scopes });
+    const again = await admin.post('/users').set('Idempotency-Key', 'user-create-0001').send({ email: 'valid.user@deped.gov.ph', fullName: 'Valid User', role: 'TEACHER', scopes });
+    expect(again.body.id).toBe(created.body.id);
+    const stale = await admin.put(`/users/${created.body.id}`).send({ position: 'Teacher II', expectedUpdatedAt: '2020-01-01T00:00:00.000Z' });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.code).toBe('STALE_RECORD');
+    const fresh = await admin.put(`/users/${created.body.id}`).send({ position: 'Teacher II', expectedUpdatedAt: created.body.updatedAt });
+    expect(fresh.status).toBe(200);
+    expect(fresh.body.scopes).toHaveLength(1); // a partial edit must not wipe the account's assignments
+  });
+});
+
 it('keeps the login token helper honest', async () => {
   expect(await login(TEACHER)).toBeTruthy();
   expect(as).toBeTypeOf('function');

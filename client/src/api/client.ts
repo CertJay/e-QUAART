@@ -69,7 +69,13 @@ export const qs = (q?: Query) => {
 
 export const api = {
   get: <T>(path: string, q?: Query) => raw(path + qs(q)).then((r) => parse<T>(r)),
-  post: <T>(path: string, body?: unknown) => raw(path, { method: 'POST', body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }).then((r) => parse<T>(r)),
+  /** `idempotencyKey`: reuse the same key for retries of one logical submission (see server lib/idempotency). */
+  post: <T>(path: string, body?: unknown, opts?: { idempotencyKey?: string }) =>
+    raw(path, {
+      method: 'POST',
+      body: body instanceof FormData ? body : JSON.stringify(body ?? {}),
+      headers: opts?.idempotencyKey ? { 'Idempotency-Key': opts.idempotencyKey } : undefined,
+    }).then((r) => parse<T>(r)),
   put: <T>(path: string, body?: unknown) => raw(path, { method: 'PUT', body: JSON.stringify(body ?? {}) }).then((r) => parse<T>(r)),
   patch: <T>(path: string, body?: unknown) => raw(path, { method: 'PATCH', body: JSON.stringify(body ?? {}) }).then((r) => parse<T>(r)),
   del: <T>(path: string) => raw(path, { method: 'DELETE' }).then((r) => parse<T>(r)),

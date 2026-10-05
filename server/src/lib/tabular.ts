@@ -22,7 +22,11 @@ export async function parseTabular(file: { buffer: Buffer; originalname: string;
       if (idx === 1) return;
       const r: Row = {};
       headers.forEach((h, col) => {
-        if (h) r[h] = String(row.getCell(col).text ?? '').trim();
+        if (!h) return;
+        const cell = row.getCell(col);
+        // Date cells: use the calendar day itself (ExcelJS gives UTC midnight), never the
+        // locale/time-zone dependent display text.
+        r[h] = cell.value instanceof Date ? cell.value.toISOString().slice(0, 10) : String(cell.text ?? '').trim();
       });
       if (Object.values(r).some((v) => v !== '')) rows.push(r);
     });

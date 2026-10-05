@@ -86,7 +86,7 @@ authRouter.post(
   '/login',
   loginLimiter,
   ah(async (req, res) => {
-    const body = z.object({ email: z.string().email().toLowerCase(), password: z.string().min(1) }).parse(req.body);
+    const body = z.object({ email: z.string().trim().toLowerCase().max(254).email(), password: z.string().min(1).max(256) }).parse(req.body);
     const user = await prisma.user.findUnique({ where: { email: body.email } });
     const generic = unauthorized('Invalid email or password');
     if (!user || !user.isActive) {
@@ -153,7 +153,7 @@ authRouter.post(
   '/change-password',
   authenticate,
   ah(async (req, res) => {
-    const body = z.object({ currentPassword: z.string(), newPassword: z.string() }).parse(req.body);
+    const body = z.object({ currentPassword: z.string().max(256), newPassword: z.string().max(128, 'Password must be at most 128 characters') }).parse(req.body);
     const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
     if (!(await verifyPassword(user.passwordHash, body.currentPassword))) throw badRequest('Current password is incorrect');
     const problems = passwordProblems(body.newPassword, user.email);

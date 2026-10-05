@@ -5,10 +5,14 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../db.js';
 import { requirePermission } from '../auth/middleware.js';
 import { audit } from '../lib/audit.js';
-import { AppError, badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
+import { AppError, badRequest, conflict, forbidden, notFound, staleRecord } from '../lib/errors.js';
 import { ah, idParam, paged, paginationSchema } from '../lib/http.js';
 import { parseTabular } from '../lib/tabular.js';
-import { isValidLrn, normalizeLrn } from '../domain/lrn.js';
+import { isValidLrn, learnerName, maskLrn, normalizeLrn } from '../domain/lrn.js';
+import {
+  birthdateField, expectedUpdatedAtField, extensionNameField, idSchema, learnerNameField, optionalLearnerName, searchField,
+} from '../domain/validation.js';
+import { idempotent } from '../lib/idempotency.js';
 import { computeEffectiveness } from '../domain/effectiveness.js';
 import { assertYearIdAllows } from '../domain/schoolYear.js';
 import { assertLearnerLevel, learnerWhere, sectionInScope, type DataScope } from '../rbac/scope.js';
@@ -16,18 +20,29 @@ import { assertLearnerLevel, learnerWhere, sectionInScope, type DataScope } from
 export const learnersRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
-const lrnField = z.string().transform(normalizeLrn).refine(isValidLrn, 'LRN must be exactly 12 digits');
-const nameField = z.string().trim().min(1).max(80);
+const lrnField = z.union([z.string(), z.number()], { error: 'LRN is required' }).transform(normalizeLrn).refine(isValidLrn, 'LRN must be exactly 12 digits');
+const nameField = learnerNameField('Last name');
 const learnerBody = z.object({
   lrn: lrnField,
-  firstName: nameField,
-  middleName: z.string().trim().max(80).nullable().optional(),
-  lastName: nameField,
-  extensionName: z.string().trim().max(10).nullable().optional(),
-  sex: z.enum(['MALE', 'FEMALE']),
-  birthdate: z.coerce.date().nullable().optional(),
+  firstName: learnerNameField('First name'),
+  middleName: optionalLearnerName('Middle name'),
+  lastName: learnerNameField('Last name'),
+  extensionName: extensionNameField,
+  sex: z.enum(['MALE', 'FEMALE'], { error: 'Sex must be MALE or FEMALE' }),
+  birthdate: birthdateField,
   status: z.enum(['ACTIVE', 'TRANSFERRED_OUT', 'DROPPED', 'GRADUATED']).optional(),
 });
+
+/**
+ * Same first name, last name and birthdate under a different LRN usually means the learner is
+ * already registered (e.g. a mistyped LRN). The caller must confirm before a second record is made.
+ */
+async function possibleDuplicates(d: { lrn: string; firstName: string; lastName: string; birthdate?: Date | null }) {
+  if (!d.birthdate) return [];
+  const same = await prisma.learner.findMany({ where: { birthdate: d.birthdate, deletedAt: null, lrn: { not: d.lrn } } });
+  const k = (x: { firstName: string; lastName: string }) => `${x.lastName}|${x.firstName}`.toLowerCase();
+  return same.filter((l) => k(l) === k(d));
+}
 
 export async function findLearnerInScope(s: DataScope, id: number) {
   const l = await prisma.learner.findFirst({ where: { id, ...learnerWhere(s) } });
@@ -62,7 +77,7 @@ learnersRouter.get('/', requirePermission('learner:read'), ah(async (req, res) =
   assertLearnerLevel(s);
   const { page, perPage } = paginationSchema.parse(req.query);
   const q = z.object({
-    search: z.string().trim().optional(),
+    search: searchField,
     sectionId: z.coerce.number().int().optional(),
     schoolYearId: z.coerce.number().int().optional(),
     status: z.enum(['ACTIVE', 'TRANSFERRED_OUT', 'DROPPED', 'GRADUATED']).optional(),
@@ -98,15 +113,23 @@ learnersRouter.get('/', requirePermission('learner:read'), ah(async (req, res) =
   res.json(paged(rows.map(({ enrolments, _count, ...l }) => ({ ...l, currentEnrolment: enrolments[0] ?? null, openGaps: _count.gaps, interventionCount: _count.interventions })), total, page, perPage));
 }));
 
-learnersRouter.post('/', requirePermission('learner:write'), ah(async (req, res) => {
+learnersRouter.post('/', requirePermission('learner:write'), idempotent(), ah(async (req, res) => {
   const s = req.scope!;
-  const b = learnerBody.extend({ sectionId: z.number().int() }).parse(req.body);
+  const b = learnerBody.extend({ sectionId: idSchema, confirmNotDuplicate: z.boolean().optional() }).parse(req.body);
   const sec = await sectionForWrite(s, b.sectionId);
   const existing = await prisma.learner.findUnique({ where: { lrn: b.lrn } });
   if (existing) {
     throw conflict('A learner with this LRN is already registered. Use "Enrol existing learner" to add them to your class.', { field: 'lrn' });
   }
-  const { sectionId: _s, ...data } = b;
+  if (!b.confirmNotDuplicate) {
+    const dups = await possibleDuplicates(b);
+    if (dups.length) {
+      throw new AppError(409, 'POSSIBLE_DUPLICATE', `A learner with the same name and birthdate is already registered under LRN ${maskLrn(dups[0].lrn)}. Check the LRN; if this really is a different learner, confirm and save again.`, {
+        matches: dups.map((d) => ({ lrn: maskLrn(d.lrn), name: learnerName(d) })),
+      });
+    }
+  }
+  const { sectionId: _s, confirmNotDuplicate: _c, ...data } = b;
   const learner = await prisma.$transaction(async (tx) => {
     const l = await tx.learner.create({ data: { ...data, createdById: req.user!.id } });
     await enrol(tx, l.id, sec);
@@ -120,9 +143,9 @@ learnersRouter.post('/', requirePermission('learner:write'), ah(async (req, res)
  * Enrol an already-registered learner (e.g. a transferee). The caller must know both the
  * LRN and the learner's last name, so the LRN alone cannot be used to probe other records.
  */
-learnersRouter.post('/enrol-existing', requirePermission('learner:write'), ah(async (req, res) => {
+learnersRouter.post('/enrol-existing', requirePermission('learner:write'), idempotent(), ah(async (req, res) => {
   const s = req.scope!;
-  const b = z.object({ lrn: lrnField, lastName: nameField, sectionId: z.number().int() }).parse(req.body);
+  const b = z.object({ lrn: lrnField, lastName: nameField, sectionId: idSchema }).parse(req.body);
   const sec = await sectionForWrite(s, b.sectionId);
   const l = await prisma.learner.findUnique({ where: { lrn: b.lrn } });
   if (!l || l.deletedAt || l.lastName.toLowerCase() !== b.lastName.toLowerCase()) throw notFound('Learner with that LRN and last name');
@@ -251,10 +274,13 @@ learnersRouter.put('/:id', requirePermission('learner:write'), ah(async (req, re
   const s = req.scope!;
   const id = idParam(req);
   const before = await findLearnerInScope(s, id);
-  const { lrn, ...b } = learnerBody.partial().parse(req.body);
+  const { lrn, expectedUpdatedAt, ...b } = learnerBody.partial().extend({ expectedUpdatedAt: expectedUpdatedAtField }).parse(req.body);
   // The LRN is the permanent learner identifier (spec §6.1); a database trigger backs this up.
   if (lrn && lrn !== before.lrn) throw new AppError(409, 'LRN_IMMUTABLE', "A learner's LRN cannot be changed", { field: 'lrn' });
-  const l = await prisma.learner.update({ where: { id }, data: b });
+  // Optimistic concurrency: with a version token, apply only if nobody saved since the editor loaded.
+  const { count } = await prisma.learner.updateMany({ where: { id, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) }, data: b });
+  if (!count) throw staleRecord('learner', (await prisma.learner.findUniqueOrThrow({ where: { id } })).updatedAt);
+  const l = await prisma.learner.findUniqueOrThrow({ where: { id } });
   await audit(req, 'UPDATE', 'Learner', id, before, l);
   res.json(l);
 }));
