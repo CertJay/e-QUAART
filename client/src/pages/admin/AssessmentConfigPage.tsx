@@ -6,15 +6,24 @@ import { Badge, Button, Card, ErrorBox, Input, Notice, PageHeader, Select, Spinn
 import { useApi } from '../../lib/hooks';
 
 interface Model { id: number; name: string; version: string; isActive: boolean; isProvisional: boolean; masteryThreshold: number; notes: string | null; bands: Band[]; _count: { assessments: number } }
-interface Type { id: number; code: string; name: string; description: string | null; resultMode: 'PERCENTAGE' | 'PROFILE'; isActive: boolean; models: Model[] }
+interface Type { id: number; code: string; name: string; description: string | null; resultMode: 'PERCENTAGE' | 'PROFILE'; applicableGrades: string[] | null; isActive: boolean; models: Model[] }
 
 const typeFields: FieldDef[] = [
   { key: 'code', label: 'Code', hint: 'Letters, digits, underscores (e.g. PHIL_IRI)' },
   { key: 'name', label: 'Name' },
   { key: 'description', label: 'Description', type: 'textarea' },
   { key: 'resultMode', label: 'How results are recorded', type: 'select', options: [{ value: 'PERCENTAGE', label: 'Score → percentage bands' }, { value: 'PROFILE', label: 'Instrument level / descriptor' }] },
+  { key: 'applicableGrades', label: 'Applies to grades', hint: 'Grade codes separated by commas, e.g. "K" or "G1, G2, G3". Leave blank for every grade except Kindergarten, which only gets instruments that list K.' },
   { key: 'isActive', label: 'Active', type: 'checkbox' },
 ];
+
+/** Comma-separated grade codes in the form ↔ a list (or null for the default) in the API (spec §3.5). */
+const gradesIn = (t: Type) => ({ ...t, applicableGrades: (t.applicableGrades ?? []).join(', ') });
+const gradesOut = (v: Record<string, unknown>) => {
+  const codes = String(v.applicableGrades ?? '').split(/[\s,]+/).map((c) => c.trim().toUpperCase()).filter(Boolean);
+  return { ...v, applicableGrades: codes.length ? codes : null };
+};
+const gradesLabel = (t: Type) => (t.applicableGrades?.length ? t.applicableGrades.join(', ') : 'all grades except Kindergarten');
 
 export function AssessmentConfigPage() {
   const q = useApi<Type[]>('/reference/assessment-types', undefined, { staleTime: 0 });
@@ -26,16 +35,16 @@ export function AssessmentConfigPage() {
       <PageHeader
         title="Assessment standards"
         subtitle="Assessment types and their performance-level configuration. Thresholds and descriptors are data, not code: update them here when DepEd policy changes. Saving re-classifies existing results."
-        actions={<Button onClick={() => setEdit({ title: 'New assessment type', initial: { resultMode: 'PERCENTAGE', isActive: true }, submit: (v) => api.post('/reference/assessment-types', v).then(done) })}>New assessment type</Button>}
+        actions={<Button onClick={() => setEdit({ title: 'New assessment type', initial: { resultMode: 'PERCENTAGE', isActive: true }, submit: (v) => api.post('/reference/assessment-types', gradesOut(v)).then(done) })}>New assessment type</Button>}
       />
       <div className="mb-4"><Notice tone="warn">Levels marked <strong>provisional</strong> were seeded for demonstration. Confirm every cut-off and descriptor (CRLA, Phil-IRI, RMA, ELLNA, term-examination bands) against the current DepEd / Region / SDO issuance.</Notice></div>
       {q.isLoading ? <Spinner /> : (
         <div className="space-y-4">
           {(q.data ?? []).map((t) => (
-            <Card key={t.id} title={<>{t.name} <Badge>{t.code}</Badge> {!t.isActive && <Badge>Inactive</Badge>}</>} subtitle={`${t.resultMode === 'PERCENTAGE' ? 'Score-based: percentage bands' : 'Profile-based: instrument descriptors (no percentage rule)'}${t.description ? ` · ${t.description}` : ''}`}
+            <Card key={t.id} title={<>{t.name} <Badge>{t.code}</Badge> {!t.isActive && <Badge>Inactive</Badge>}</>} subtitle={`${t.resultMode === 'PERCENTAGE' ? 'Score-based: percentage bands' : 'Profile-based: instrument descriptors (no percentage rule)'} · Applies to ${gradesLabel(t)}${t.description ? ` · ${t.description}` : ''}`}
               actions={
                 <>
-                  <Button size="sm" variant="secondary" onClick={() => setEdit({ title: `Edit ${t.name}`, initial: t as unknown as Record<string, unknown>, submit: (v) => api.put(`/reference/assessment-types/${t.id}`, v).then(done) })}>Edit type</Button>
+                  <Button size="sm" variant="secondary" onClick={() => setEdit({ title: `Edit ${t.name}`, initial: gradesIn(t), submit: (v) => api.put(`/reference/assessment-types/${t.id}`, gradesOut(v)).then(done) })}>Edit type</Button>
                   {!t.models.length && <Button size="sm" onClick={() => api.post('/reference/classification-models', { assessmentTypeId: t.id, name: `${t.name} levels`, bands: t.resultMode === 'PERCENTAGE' ? [{ label: 'Meets standard', tier: 'TIER_1', minPct: 75, maxPct: 100, sortOrder: 1 }, { label: 'Below standard', tier: 'TIER_3', minPct: 0, maxPct: 74.99, sortOrder: 2 }] : [{ label: 'Ready', descriptorKey: 'READY', tier: 'TIER_1', sortOrder: 1 }, { label: 'Needs support', descriptorKey: 'NEEDS_SUPPORT', tier: 'TIER_3', sortOrder: 2 }] }).then(done)}>Add performance levels</Button>}
                 </>
               }>

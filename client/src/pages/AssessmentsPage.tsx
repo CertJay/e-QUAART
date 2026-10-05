@@ -62,7 +62,10 @@ export function AssessmentsPage() {
 }
 
 interface Competency { id: number; code: string; description: string }
-interface Section { id: number; name: string; gradeLevel: { id: number; name: string }; school: { name: string } }
+interface Section { id: number; name: string; gradeLevel: { id: number; code: string; name: string }; school: { name: string } }
+
+/** Mirrors the server rule (spec §3.5): no list = every grade except Kindergarten. */
+const applies = (grades: string[] | null, gradeCode: string) => (grades?.length ? grades.includes(gradeCode) : gradeCode !== 'K');
 
 function NewAssessment({ presetSection, onClose, onCreated }: { presetSection: string; onClose: () => void; onCreated: (id: number) => void }) {
   const boot = useBootstrap().data;
@@ -77,6 +80,9 @@ function NewAssessment({ presetSection, onClose, onCreated }: { presetSection: s
   const sy = boot?.schoolYears.find((s) => String(s.id) === v.schoolYearId);
   const itemTotal = Object.values(items).reduce((s, x) => s + (Number(x) || 0), 0);
   useEffect(() => setItems({}), [v.learningAreaId, v.sectionId]);
+  useEffect(() => {
+    if (type && section && !applies(type.applicableGrades, section.gradeLevel.code)) setV((x) => ({ ...x, assessmentTypeId: '' }));
+  }, [section?.id]);
   const set = (k: keyof typeof v) => (e: { target: { value: string } }) => setV((x) => ({ ...x, [k]: e.target.value }));
   const submit = async () => {
     setError(null);
@@ -94,7 +100,7 @@ function NewAssessment({ presetSection, onClose, onCreated }: { presetSection: s
     <Modal open wide onClose={onClose} title="New assessment" footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={submit}>Create assessment</Button></>}>
       <div className="grid gap-3 md:grid-cols-3">
         <Field label="1. Assessment type" className="md:col-span-3">
-          <Select value={v.assessmentTypeId} onChange={set('assessmentTypeId')} options={(boot?.assessmentTypes ?? []).filter((t) => t.isActive).map((t) => ({ value: t.id, label: `${t.name}${t.resultMode === 'PROFILE' ? ' (level / profile)' : ' (score-based)'}` }))} placeholder="Select…" />
+          <Select value={v.assessmentTypeId} onChange={set('assessmentTypeId')} options={(boot?.assessmentTypes ?? []).filter((t) => t.isActive && (!section || applies(t.applicableGrades, section.gradeLevel.code))).map((t) => ({ value: t.id, label: `${t.name}${t.resultMode === 'PROFILE' ? ' (level / profile)' : ' (score-based)'}` }))} placeholder="Select…" />
         </Field>
         {type && (
           <div className="md:col-span-3">

@@ -10,6 +10,7 @@ import { audit } from '../lib/audit.js';
 import { AppError, badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { ah, idParam, nullableDate, paged, paginationSchema } from '../lib/http.js';
 import { parseTabular } from '../lib/tabular.js';
+import { assessmentApplies } from '../domain/applicability.js';
 import { learnerName } from '../domain/lrn.js';
 import { tierMetrics } from '../domain/metrics.js';
 import { assertYearAllows, yearAllows } from '../domain/schoolYear.js';
@@ -135,13 +136,17 @@ const createBody = z.object({
   competencies: compItems,
 });
 
-async function validateConfig(b: { assessmentTypeId: number; schoolYearId: number; termId: number; learningAreaId: number; maxScore?: number | null; windowOpen?: Date | null; windowClose?: Date | null; competencies: { competencyId: number; itemsTotal: number }[] }, gradeLevelId: number) {
+async function validateConfig(b: { assessmentTypeId: number; schoolYearId: number; termId: number; learningAreaId: number; maxScore?: number | null; windowOpen?: Date | null; windowClose?: Date | null; competencies: { competencyId: number; itemsTotal: number }[] }, grade: { id: number; code: string; name: string }) {
+  const gradeLevelId = grade.id;
   const [type, term, comps] = await Promise.all([
     prisma.assessmentType.findUnique({ where: { id: b.assessmentTypeId }, include: { models: { where: { isActive: true }, orderBy: { createdAt: 'desc' } } } }),
     prisma.term.findUnique({ where: { id: b.termId } }),
     prisma.competency.findMany({ where: { id: { in: b.competencies.map((c) => c.competencyId) } } }),
   ]);
   if (!type || !type.isActive) throw badRequest('Select an active assessment type');
+  if (!assessmentApplies(type.applicableGrades, grade.code)) {
+    throw badRequest(`${type.name} does not apply to ${grade.name} learners`, [{ path: 'assessmentTypeId', message: 'Not applicable to this grade level' }]);
+  }
   const model = type.models.find((m) => m.effectiveSchoolYearId === b.schoolYearId) ?? type.models.find((m) => m.effectiveSchoolYearId === null) ?? type.models[0];
   if (!model) throw badRequest(`${type.name} has no active classification model. Ask the division administrator to configure one.`);
   if (!term || term.schoolYearId !== b.schoolYearId) throw badRequest('The term does not belong to the selected school year');
@@ -172,7 +177,7 @@ assessmentsRouter.post('/', requirePermission('assessment:write'), ah(async (req
   if (section.schoolYearId !== b.schoolYearId) throw badRequest('The class belongs to a different school year');
   assertYearAllows(await prisma.schoolYear.findUniqueOrThrow({ where: { id: b.schoolYearId } }), 'encode');
   if (!learningAreaInScope(s, b.learningAreaId)) throw forbidden();
-  const { type, model } = await validateConfig(b, section.gradeLevelId);
+  const { type, model } = await validateConfig(b, section.gradeLevel);
   await assertNoDuplicate(b);
   const [la, term] = await Promise.all([
     prisma.learningArea.findUniqueOrThrow({ where: { id: b.learningAreaId } }),
@@ -213,7 +218,7 @@ assessmentsRouter.put('/:id', requirePermission('assessment:write'), ah(async (r
     windowClose: b.windowClose === undefined ? before.windowClose : b.windowClose,
     competencies: b.competencies ?? before.competencies.map((c) => ({ competencyId: c.competencyId, itemsTotal: c.itemsTotal })),
   };
-  await validateConfig(merged, before.gradeLevelId);
+  await validateConfig(merged, before.gradeLevel);
   await assertNoDuplicate(merged, before.id);
   const resultCount = await prisma.assessmentResult.count({ where: { assessmentId: before.id } });
   if (resultCount && b.maxScore !== undefined && b.maxScore !== before.maxScore) {

@@ -161,8 +161,8 @@ export async function seed() {
 
   // Assessment types & provisional classification models
   const types: Record<string, { typeId: number; modelId: number; mode: ResultMode; bands: Prisma.ClassificationBandGetPayload<object>[]; threshold: number }> = {};
-  const mkType = async (code: string, name: string, mode: ResultMode, description: string, bands: BandSeed[], notes: string) => {
-    const t = await prisma.assessmentType.create({ data: { code, name, resultMode: mode, description } });
+  const mkType = async (code: string, name: string, mode: ResultMode, description: string, bands: BandSeed[], notes: string, applicableGrades?: string[]) => {
+    const t = await prisma.assessmentType.create({ data: { code, name, resultMode: mode, description, applicableGrades } });
     const m = await prisma.classificationModel.create({
       data: {
         assessmentTypeId: t.id, name: `${name} classification (seed)`, version: '2026.1', isProvisional: true, masteryThreshold: 0.75, notes,
@@ -180,26 +180,34 @@ export async function seed() {
     { label: 'Light Refresher', descriptorKey: 'LIGHT_REFRESHER', tier: 'TIER_2', color: '#0891b2', sortOrder: 2 },
     { label: 'Moderate Refresher', descriptorKey: 'MODERATE_REFRESHER', tier: 'TIER_2', color: '#d97706', sortOrder: 3 },
     { label: 'Full Refresher', descriptorKey: 'FULL_REFRESHER', tier: 'TIER_3', color: '#dc2626', sortOrder: 4 },
-  ], confirm);
+  ], confirm, ['G1', 'G2', 'G3']);
   await mkType('PHIL_IRI', 'Phil-IRI — Philippine Informal Reading Inventory', 'PROFILE', 'Reading level from graded passages (Grades 2–10).', [
     { label: 'Independent', descriptorKey: 'INDEPENDENT', tier: 'TIER_1', color: '#2563eb', sortOrder: 1 },
     { label: 'Instructional', descriptorKey: 'INSTRUCTIONAL', tier: 'TIER_2', color: '#d97706', sortOrder: 2 },
     { label: 'Frustration', descriptorKey: 'FRUSTRATION', tier: 'TIER_3', color: '#dc2626', sortOrder: 3 },
-  ], confirm);
+  ], confirm, ['G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10']);
   await mkType('RMA', 'RMA — Rapid Mathematics Assessment', 'PROFILE', 'Key Stage 1 numeracy skill profile (Grades 1–3).', [
     { label: 'At Grade Level', descriptorKey: 'AT_GRADE_LEVEL', tier: 'TIER_1', color: '#2563eb', sortOrder: 1 },
     { label: 'Transitioning', descriptorKey: 'TRANSITIONING', tier: 'TIER_2', color: '#0891b2', sortOrder: 2 },
     { label: 'Developing', descriptorKey: 'DEVELOPING', tier: 'TIER_2', color: '#d97706', sortOrder: 3 },
     { label: 'High Emerging', descriptorKey: 'HIGH_EMERGING', tier: 'TIER_3', color: '#ea580c', sortOrder: 4 },
     { label: 'Low Emerging', descriptorKey: 'LOW_EMERGING', tier: 'TIER_3', color: '#dc2626', sortOrder: 5 },
-  ], `${confirm} RMA descriptors in particular are placeholders.`);
+  ], `${confirm} RMA descriptors in particular are placeholders.`, ['G1', 'G2', 'G3']);
   await mkType('ELLNA', 'ELLNA — Early Language, Literacy and Numeracy Assessment', 'PERCENTAGE', 'Key Stage 1 exit benchmark (Grade 3).', [
     { label: 'Highly Proficient', tier: 'TIER_1', minPct: 90, maxPct: 100, color: '#1d4ed8', sortOrder: 1 },
     { label: 'Proficient', tier: 'TIER_1', minPct: 75, maxPct: 89.99, color: '#2563eb', sortOrder: 2 },
     { label: 'Nearly Proficient', tier: 'TIER_2', minPct: 50, maxPct: 74.99, color: '#d97706', sortOrder: 3 },
     { label: 'Low Proficient', tier: 'TIER_3', minPct: 25, maxPct: 49.99, color: '#ea580c', sortOrder: 4 },
     { label: 'Not Proficient', tier: 'TIER_3', minPct: 0, maxPct: 24.99, color: '#dc2626', sortOrder: 5 },
-  ], confirm);
+  ], confirm, ['G3']);
+  // Kindergarten-only instruments (spec §3.5). No classification model is seeded: their official
+  // descriptors are still to be confirmed (spec §18 item 1), so an administrator adds one before use.
+  await prisma.assessmentType.createMany({
+    data: [
+      { code: 'MFAT', name: 'MFAT — Multi-Factor Assessment Tool', resultMode: 'PROFILE', description: 'Kindergarten assessment record.', applicableGrades: ['K'] },
+      { code: 'ECCD', name: 'ECCD — Early Childhood Care and Development Checklist', resultMode: 'PROFILE', description: 'Kindergarten assessment record.', applicableGrades: ['K'] },
+    ],
+  });
 
   // Organisation
   const division = await prisma.division.create({ data: { code: 'SDO-DEMO', name: 'Schools Division Office (Demo)', regionName: 'Region IV-A CALABARZON' } });

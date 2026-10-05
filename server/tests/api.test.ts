@@ -535,6 +535,32 @@ describe('interventions', () => {
   });
 });
 
+describe('assessment applicability (§3.5, acceptance 10)', () => {
+  it('makes MFAT and ECCD unavailable for non-Kindergarten learners', async () => {
+    const t = await asUser(TEACHER); // Grade 3 class
+    const fil = await prisma.learningArea.findUniqueOrThrow({ where: { code: 'FIL' } });
+    const eosy = sy.terms.find((x) => x.code === 'EOSY')!;
+    for (const code of ['MFAT', 'ECCD']) {
+      const type = await prisma.assessmentType.findUniqueOrThrow({ where: { code } });
+      expect(type.applicableGrades).toEqual(['K']);
+      const res = await t.post('/assessments').send({ assessmentTypeId: type.id, schoolYearId: sy.id, termId: eosy.id, sectionId: teacherSection.id, learningAreaId: fil.id });
+      expect(res.status).toBe(400);
+      expect(res.body.error.message).toContain('does not apply to Grade 3');
+    }
+  });
+
+  it('lets an administrator configure applicable grades, validating the codes', async () => {
+    const admin = await asUser('admin@equaart.local');
+    const created = await admin.post('/reference/assessment-types').send({ code: 'K_CHECK', name: 'Kinder check', resultMode: 'PROFILE', applicableGrades: ['K'] });
+    expect(created.status).toBe(201);
+    expect(created.body.applicableGrades).toEqual(['K']);
+    expect((await admin.put(`/reference/assessment-types/${created.body.id}`).send({ applicableGrades: ['G99'] })).status).toBe(400);
+    const cleared = await admin.put(`/reference/assessment-types/${created.body.id}`).send({ applicableGrades: [] });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.applicableGrades).toBeNull();
+  });
+});
+
 describe('configuration', () => {
   it('re-classifies existing results when an administrator changes performance levels', async () => {
     const admin = await asUser('admin@equaart.local');

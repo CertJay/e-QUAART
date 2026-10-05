@@ -138,7 +138,7 @@ export interface Bootstrap {
   keyStages: { id: number; code: string; name: string; sortOrder: number }[];
   gradeLevels: { id: number; code: string; name: string; keyStageId: number; sortOrder: number; isActive: boolean }[];
   learningAreas: { id: number; code: string; name: string; sortOrder: number; isActive: boolean; inScope: boolean }[];
-  assessmentTypes: { id: number; code: string; name: string; description: string | null; resultMode: 'PERCENTAGE' | 'PROFILE'; isActive: boolean; models: { id: number; name: string; isProvisional: boolean; masteryThreshold: number; bands: Band[] }[] }[];
+  assessmentTypes: { id: number; code: string; name: string; description: string | null; resultMode: 'PERCENTAGE' | 'PROFILE'; applicableGrades: string[] | null; isActive: boolean; models: { id: number; name: string; isProvisional: boolean; masteryThreshold: number; bands: Band[] }[] }[];
 }
 export interface PerfRow {
   key: number;

@@ -1,9 +1,24 @@
 import { describe, expect, it } from 'vitest';
+import { assessmentApplies } from '../src/domain/applicability.js';
 import { classify, classifyPercentage, competencyTier, computePercentage, validateBands, type BandLike } from '../src/domain/classification.js';
 import { computeEffectiveness } from '../src/domain/effectiveness.js';
 import { suppress, tierMetrics } from '../src/domain/metrics.js';
 import { isValidLrn, maskLrn, normalizeLrn } from '../src/domain/lrn.js';
 import { assertYearAllows, canTransition, yearAllows } from '../src/domain/schoolYear.js';
+
+describe('assessment applicability (§3.5)', () => {
+  it('limits listed instruments to their grades', () => {
+    expect(assessmentApplies(['K'], 'K')).toBe(true);
+    expect(assessmentApplies(['K'], 'G1')).toBe(false);
+    expect(assessmentApplies(['G1', 'G2', 'G3'], 'G4')).toBe(false);
+  });
+
+  it('gives Kindergarten only instruments that list it', () => {
+    expect(assessmentApplies(null, 'G7')).toBe(true);
+    expect(assessmentApplies([], 'G7')).toBe(true);
+    expect(assessmentApplies(null, 'K')).toBe(false);
+  });
+});
 
 describe('school-year lifecycle rules', () => {
   it('moves only forward, except CLOSING back to OPEN', () => {

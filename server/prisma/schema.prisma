@@ -342,6 +342,9 @@ model AssessmentType {
   name        String
   description String?
   resultMode  ResultMode
+  // Grade-level codes the instrument applies to (spec §3.5), e.g. ["K"] for MFAT/ECCD.
+  // Null or empty = every grade except Kindergarten; Kindergarten must be listed explicitly.
+  applicableGrades Json?
   isActive    Boolean               @default(true)
   models      ClassificationModel[]
   assessments Assessment[]

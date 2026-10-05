@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../db.js';
 import { requirePermission } from '../auth/middleware.js';
 import { audit } from '../lib/audit.js';
@@ -257,6 +258,8 @@ const typeBody = z.object({
   name: z.string().trim().min(2),
   description: z.string().trim().optional().nullable(),
   resultMode: z.enum(['PERCENTAGE', 'PROFILE']),
+  // Grade-level codes (spec §3.5); null/empty = all grades except Kindergarten.
+  applicableGrades: z.array(z.string().trim().min(1)).nullable().optional(),
   isActive: z.boolean().optional(),
 });
 referenceRouter.get('/assessment-types', ah(async (_req, res) => {
@@ -265,8 +268,20 @@ referenceRouter.get('/assessment-types', ah(async (_req, res) => {
     include: { models: { include: { bands: { orderBy: { sortOrder: 'asc' } }, _count: { select: { assessments: true } } }, orderBy: { createdAt: 'desc' } } },
   }));
 }));
+/** Validate grade codes and map an empty list to SQL NULL (Prisma needs DbNull for nullable JSON). */
+async function typeData<T extends { applicableGrades?: string[] | null }>(b: T) {
+  const { applicableGrades, ...rest } = b;
+  if (applicableGrades === undefined) return rest;
+  if (!applicableGrades?.length) return { ...rest, applicableGrades: Prisma.DbNull };
+  const codes = [...new Set(applicableGrades)];
+  const known = await prisma.gradeLevel.findMany({ where: { code: { in: codes } }, select: { code: true } });
+  const unknown = codes.filter((c) => !known.some((k) => k.code === c));
+  if (unknown.length) throw badRequest(`Unknown grade level code: ${unknown.join(', ')}`);
+  return { ...rest, applicableGrades: codes };
+}
+
 referenceRouter.post('/assessment-types', canWrite, ah(async (req, res) => {
-  const t = await prisma.assessmentType.create({ data: typeBody.parse(req.body) });
+  const t = await prisma.assessmentType.create({ data: await typeData(typeBody.parse(req.body)) });
   await audit(req, 'CREATE', 'AssessmentType', t.id, null, t);
   res.status(201).json(t);
 }));
@@ -277,7 +292,7 @@ referenceRouter.put('/assessment-types/:id', canWrite, ah(async (req, res) => {
   if (b.resultMode && b.resultMode !== before.resultMode && before._count.assessments > 0) {
     throw conflict('Result mode cannot change once assessments of this type exist');
   }
-  const t = await prisma.assessmentType.update({ where: { id }, data: b });
+  const t = await prisma.assessmentType.update({ where: { id }, data: await typeData(b) });
   await audit(req, 'UPDATE', 'AssessmentType', id, before, t);
   res.json(t);
 }));
