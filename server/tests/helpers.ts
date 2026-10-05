@@ -22,6 +22,7 @@ export function as(token: string) {
     get: (url: string) => auth(request(app).get(`/api/v1${url}`)),
     post: (url: string) => auth(request(app).post(`/api/v1${url}`)),
     put: (url: string) => auth(request(app).put(`/api/v1${url}`)),
+    patch: (url: string) => auth(request(app).patch(`/api/v1${url}`)),
     delete: (url: string) => auth(request(app).delete(`/api/v1${url}`)),
   };
 }

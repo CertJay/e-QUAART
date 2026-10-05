@@ -33,6 +33,12 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     });
   }
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    // Partial unique index Enrolment_one_current_per_year (spec §6.2), hit only if the API check races.
+    if (err.code === 'P2002' && JSON.stringify(err.meta ?? {}).includes('Enrolment')) {
+      return res.status(409).json({
+        error: { code: 'ALREADY_ENROLLED', message: 'Learner already has an active section assignment for this school year. Update the existing enrollment instead of creating another assignment.' },
+      });
+    }
     if (err.code === 'P2002') {
       return res.status(409).json({ error: { code: 'CONFLICT', message: 'A record with the same unique value already exists', details: err.meta } });
     }
@@ -44,6 +50,9 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   // carry the trigger message; ORM writes surface it only as a generic constraint error (500).
   if (err instanceof Error && err.message.includes('SCHOOL_YEAR_READ_ONLY')) {
     return res.status(423).json({ error: { code: 'SCHOOL_YEAR_LOCKED', message: 'Results of a closed school year are read-only' } });
+  }
+  if (err instanceof Error && err.message.includes('LRN_IMMUTABLE')) {
+    return res.status(409).json({ error: { code: 'LRN_IMMUTABLE', message: "A learner's LRN cannot be changed" } });
   }
   if (err && typeof err === 'object' && 'type' in err && (err as { type: string }).type === 'entity.parse.failed') {
     return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Malformed JSON body' } });

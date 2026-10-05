@@ -71,6 +71,7 @@ export const api = {
   get: <T>(path: string, q?: Query) => raw(path + qs(q)).then((r) => parse<T>(r)),
   post: <T>(path: string, body?: unknown) => raw(path, { method: 'POST', body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }).then((r) => parse<T>(r)),
   put: <T>(path: string, body?: unknown) => raw(path, { method: 'PUT', body: JSON.stringify(body ?? {}) }).then((r) => parse<T>(r)),
+  patch: <T>(path: string, body?: unknown) => raw(path, { method: 'PATCH', body: JSON.stringify(body ?? {}) }).then((r) => parse<T>(r)),
   del: <T>(path: string) => raw(path, { method: 'DELETE' }).then((r) => parse<T>(r)),
   /** Upload a file with extra form fields; returns the parsed body even on 422 (validation report). */
   upload: async <T>(path: string, file: File, fields: Record<string, string>) => {

@@ -12,7 +12,8 @@ export function LearnerForm({ open, onClose, initial, sectionId, onSaved }: { op
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    const body = { ...v, middleName: v.middleName || null, extensionName: v.extensionName || null, birthdate: v.birthdate || null };
+    const { lrn, ...rest } = v;
+    const body = { ...(v.id ? rest : { ...rest, lrn }), middleName: v.middleName || null, extensionName: v.extensionName || null, birthdate: v.birthdate || null };
     try {
       if (v.id) await api.put(`/learners/${v.id}`, body);
       else await api.post('/learners', { ...body, sectionId });
@@ -25,8 +26,8 @@ export function LearnerForm({ open, onClose, initial, sectionId, onSaved }: { op
   return (
     <Modal open={open} onClose={onClose} title={v.id ? 'Edit learner' : 'Register learner'} footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button form="learner-form" type="submit">Save</Button></>}>
       <form id="learner-form" onSubmit={submit} className="grid grid-cols-2 gap-3">
-        <Field label="LRN (12 digits)" className="col-span-2" hint="The Learner Reference Number is the unique identifier; duplicates are rejected.">
-          <Input required inputMode="numeric" pattern="[0-9 \-]{12,16}" value={v.lrn} onChange={set('lrn')} />
+        <Field label="LRN (12 digits)" className="col-span-2" hint={v.id ? 'The LRN is the permanent learner identifier and cannot be changed.' : 'The Learner Reference Number is the unique identifier; duplicates are rejected.'}>
+          <Input required inputMode="numeric" pattern="[0-9 \-]{12,16}" value={v.lrn} onChange={set('lrn')} readOnly={!!v.id} />
         </Field>
         <Field label="Last name"><Input required value={v.lastName} onChange={set('lastName')} /></Field>
         <Field label="First name"><Input required value={v.firstName} onChange={set('firstName')} /></Field>

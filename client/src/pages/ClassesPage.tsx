@@ -12,7 +12,7 @@ import { isLearnerLevel } from '../lib/nav';
 
 interface SectionRow {
   id: number; name: string; schoolId: number; learnerCount: number; assessmentCount: number;
-  gradeLevel: { id: number; name: string }; school: { id: number; name: string }; schoolYear: { label: string };
+  schoolYearId: number; gradeLevel: { id: number; name: string }; school: { id: number; name: string }; schoolYear: { label: string };
   adviser: { id: number; fullName: string } | null; teachers: { id: number; user: { fullName: string }; learningArea: { code: string } | null }[];
 }
 
@@ -84,6 +84,7 @@ export function ClassDetailPage() {
   const [tab, setTab] = useState<'roster' | 'assessments' | 'analytics'>('roster');
   const [adding, setAdding] = useState<'new' | 'existing' | 'import' | null>(null);
   const [ending, setEnding] = useState<number | null>(null);
+  const [moving, setMoving] = useState<number | null>(null);
   if (q.isLoading) return <Spinner />;
   if (q.error) return <ErrorBox error={q.error} />;
   const s = q.data!;
@@ -124,7 +125,12 @@ export function ClassDetailPage() {
               { key: 'name', label: 'Name', render: (r) => <span className={r.isCurrent ? 'font-medium' : 'text-ink-3 line-through'}>{r.lastName}, {r.firstName} {r.middleName ? `${r.middleName[0]}.` : ''}</span> },
               { key: 'sex', label: 'Sex', render: (r) => humanize(r.sex) },
               { key: 'status', label: 'Enrolment', render: (r) => r.isCurrent ? <Badge tone="green">Enrolled</Badge> : <Badge>{r.endReason ?? 'Ended'}</Badge> },
-              ...(canWrite ? [{ key: 'act', label: '', render: (r: NonNullable<SectionDetail['roster']>[number]) => r.isCurrent ? <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setEnding(r.enrolmentId); }}>Transfer / drop</Button> : null }] : []),
+              ...(canWrite ? [{ key: 'act', label: '', render: (r: NonNullable<SectionDetail['roster']>[number]) => r.isCurrent ? (
+                <span className="flex justify-end gap-1">
+                  <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMoving(r.enrolmentId); }}>Move class</Button>
+                  <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setEnding(r.enrolmentId); }}>Transfer / drop</Button>
+                </span>
+              ) : null }] : []),
             ]} />
           )}
         </Card>
@@ -158,7 +164,27 @@ export function ClassDetailPage() {
         help={<>Upload a CSV or Excel file (e.g. from an LIS export) with columns <code>lrn, last_name, first_name, middle_name, extension_name, sex, birthdate</code>. The whole file is validated first: invalid or duplicate LRNs and missing fields are listed and nothing is imported until every row is valid.</>}
       />
       {ending && <EndEnrolment enrolmentId={ending} onClose={() => setEnding(null)} onSaved={() => q.refetch()} />}
+      {moving && <MoveClass enrolmentId={moving} from={s} onClose={() => setMoving(null)} onSaved={() => q.refetch()} />}
     </>
+  );
+}
+
+/** Class change within the same school and school year: the learner keeps one active section (spec §6.2). */
+function MoveClass({ enrolmentId, from, onClose, onSaved }: { enrolmentId: number; from: SectionDetail; onClose: () => void; onSaved: () => void }) {
+  const sections = useApi<SectionRow[]>('/sections', { schoolId: from.schoolId, schoolYearId: from.schoolYearId });
+  const [sectionId, setSectionId] = useState('');
+  const [error, setError] = useState<unknown>(null);
+  const options = (sections.data ?? []).filter((x) => x.id !== from.id).map((x) => ({ value: x.id, label: `${x.gradeLevel.name} – ${x.name}` }));
+  return (
+    <Modal open onClose={onClose} title="Move to another class" footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!sectionId} onClick={async () => {
+      try { await api.patch(`/learners/enrolments/${enrolmentId}`, { sectionId: Number(sectionId) }); onSaved(); onClose(); } catch (e) { setError(e); }
+    }}>Move</Button></>}>
+      <div className="space-y-3">
+        <p className="text-sm text-ink-2">A learner has one active class per school year. Moving keeps this enrolment as history and makes the new class current. For a transfer to another school, use <em>Transfer / drop</em> instead.</p>
+        <Field label="New class"><Select value={sectionId} onChange={(e) => setSectionId(e.target.value)} options={options} placeholder={sections.isLoading ? 'Loading…' : 'Select…'} /></Field>
+        <ErrorBox error={error} />
+      </div>
+    </Modal>
   );
 }
 

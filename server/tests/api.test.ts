@@ -151,6 +151,79 @@ describe('learner master data', () => {
   });
 });
 
+describe('enrolment rules (§6, acceptance 7–9)', () => {
+  const SECOND_SECTION = 'Learner already has an active section assignment for this school year. Update the existing enrollment instead of creating another assignment.';
+  let learner: { id: number; lrn: string; lastName: string };
+  let otherSection: { id: number };
+
+  beforeAll(async () => {
+    const t = await asUser(TEACHER);
+    const res = await t.post('/learners').send({ lrn: '999999100001', firstName: 'Rule', lastName: 'Tester', sex: 'FEMALE', sectionId: teacherSection.id });
+    expect(res.status).toBe(201);
+    learner = res.body;
+    otherSection = await prisma.section.findFirstOrThrow({ where: { schoolId: teacherSection.schoolId, schoolYearId: sy.id, id: { not: teacherSection.id } } });
+  });
+
+  it('rejects a second active section in the same school year with the defined message', async () => {
+    const c = await asUser(COORD);
+    const res = await c.post('/learners/enrol-existing').send({ lrn: learner.lrn, lastName: learner.lastName, sectionId: otherSection.id });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('ALREADY_ENROLLED');
+    expect(res.body.error.message).toBe(SECOND_SECTION);
+    // Re-enrolling in the same class is harmless.
+    expect((await c.post('/learners/enrol-existing').send({ lrn: learner.lrn, lastName: learner.lastName, sectionId: teacherSection.id })).status).toBe(201);
+  });
+
+  it('backs the single-section rule with a database constraint', async () => {
+    await expect(prisma.enrolment.create({ data: { learnerId: learner.id, sectionId: otherSection.id, schoolYearId: sy.id } })).rejects.toThrow();
+    expect(await prisma.enrolment.count({ where: { learnerId: learner.id, schoolYearId: sy.id, isCurrent: true } })).toBe(1);
+  });
+
+  it('refuses to import a learner already enrolled in another class', async () => {
+    const csv = ['lrn,last_name,first_name,sex', `${learner.lrn},Tester,Rule,F`].join('\n');
+    const res = await (await asUser(COORD)).post('/learners/import').field('sectionId', String(otherSection.id)).attach('file', Buffer.from(csv), 'roster.csv');
+    expect(res.status).toBe(422);
+    expect(res.body.errors[0].message).toBe(SECOND_SECTION);
+  });
+
+  it('never changes an LRN, through the API or the database', async () => {
+    const res = await (await asUser(TEACHER)).put(`/learners/${learner.id}`).send({ lrn: '999999100002', firstName: 'Renamed' });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('LRN_IMMUTABLE');
+    expect((await prisma.learner.findUniqueOrThrow({ where: { id: learner.id } })).firstName).toBe('Rule');
+    await expect(prisma.learner.update({ where: { id: learner.id }, data: { lrn: '999999100002' } })).rejects.toThrow();
+    // Sending the unchanged LRN with other edits is fine.
+    expect((await (await asUser(TEACHER)).put(`/learners/${learner.id}`).send({ lrn: learner.lrn, middleName: 'M' })).status).toBe(200);
+  });
+
+  it('moves a learner between classes by updating the existing enrolment, keeping history', async () => {
+    const c = await asUser(COORD);
+    const current = await prisma.enrolment.findFirstOrThrow({ where: { learnerId: learner.id, isCurrent: true } });
+    const res = await c.patch(`/learners/enrolments/${current.id}`).send({ sectionId: otherSection.id });
+    expect(res.status).toBe(200);
+    const all = await prisma.enrolment.findMany({ where: { learnerId: learner.id }, orderBy: { id: 'asc' } });
+    expect(all.map((e) => [e.sectionId, e.isCurrent])).toEqual([[teacherSection.id, false], [otherSection.id, true]]);
+    // A class in another school is a transfer, not a class change.
+    const elsewhere = await prisma.section.findFirstOrThrow({ where: { schoolYearId: sy.id, schoolId: { not: teacherSection.schoolId } } });
+    expect([400, 403]).toContain((await c.patch(`/learners/enrolments/${res.body.id}`).send({ sectionId: elsewhere.id })).status);
+    expect((await prisma.enrolment.findUniqueOrThrow({ where: { id: res.body.id } })).isCurrent).toBe(true);
+  });
+
+  it('transfers by ending the enrolment and enrolling the same LRN at the receiving school', async () => {
+    const c = await asUser(COORD);
+    const current = await prisma.enrolment.findFirstOrThrow({ where: { learnerId: learner.id, isCurrent: true } });
+    expect((await c.post(`/learners/enrolments/${current.id}/end`).send({ status: 'TRANSFERRED_OUT' })).status).toBe(200);
+    const receiving = await prisma.section.findFirstOrThrow({ where: { schoolYearId: sy.id, school: { schoolIdDeped: '900201' } } });
+    const receivingCoord = await prisma.user.findFirstOrThrow({ where: { role: 'ASSESSMENT_COORDINATOR', scopes: { some: { schoolId: receiving.schoolId } } } });
+    const res = await (await asUser(receivingCoord.email)).post('/learners/enrol-existing').send({ lrn: learner.lrn, lastName: learner.lastName, sectionId: receiving.id });
+    expect(res.status).toBe(201);
+    expect(await prisma.learner.count({ where: { lrn: learner.lrn } })).toBe(1);
+    const all = await prisma.enrolment.findMany({ where: { learnerId: learner.id } });
+    expect(all).toHaveLength(3);
+    expect(all.filter((e) => e.isCurrent).map((e) => e.sectionId)).toEqual([receiving.id]);
+  });
+});
+
 describe('assessment workflow (acceptance criteria)', () => {
   let assessmentId: number;
   let roster: { learner: { id: number } }[];

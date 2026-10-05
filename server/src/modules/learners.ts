@@ -5,7 +5,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../db.js';
 import { requirePermission } from '../auth/middleware.js';
 import { audit } from '../lib/audit.js';
-import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
+import { AppError, badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { ah, idParam, paged, paginationSchema } from '../lib/http.js';
 import { parseTabular } from '../lib/tabular.js';
 import { isValidLrn, normalizeLrn } from '../domain/lrn.js';
@@ -42,11 +42,18 @@ async function sectionForWrite(s: DataScope, sectionId: number) {
   return sec;
 }
 
-/** Enrol a learner in a section, closing any other current enrolment for the same school year. */
+export const SECOND_SECTION_MESSAGE =
+  'Learner already has an active section assignment for this school year. Update the existing enrollment instead of creating another assignment.';
+
+/**
+ * Enrol a learner in a section (spec §6.2). A learner holds one active section per school year:
+ * enrolling again in the same section is a no-op, and a different section is refused. Moving a
+ * learner between classes goes through PATCH /learners/enrolments/:id instead.
+ */
 async function enrol(tx: Prisma.TransactionClient, learnerId: number, sec: { id: number; schoolYearId: number }) {
   const current = await tx.enrolment.findFirst({ where: { learnerId, schoolYearId: sec.schoolYearId, isCurrent: true } });
   if (current?.sectionId === sec.id) return current;
-  if (current) await tx.enrolment.update({ where: { id: current.id }, data: { isCurrent: false, endedAt: new Date(), endReason: 'Moved to another class' } });
+  if (current) throw new AppError(409, 'ALREADY_ENROLLED', SECOND_SECTION_MESSAGE, { enrolmentId: current.id });
   return tx.enrolment.create({ data: { learnerId, sectionId: sec.id, schoolYearId: sec.schoolYearId } });
 }
 
@@ -142,6 +149,29 @@ learnersRouter.post('/enrolments/:id/end', requirePermission('learner:write'), a
   res.json({ ok: true });
 }));
 
+/**
+ * Move a learner to another class of the same school and school year (spec §6.2: "update the
+ * existing enrollment"). The old enrolment is kept as history and a new current one is created.
+ */
+learnersRouter.patch('/enrolments/:id', requirePermission('learner:write'), ah(async (req, res) => {
+  const s = req.scope!;
+  const e = await prisma.enrolment.findUnique({ where: { id: idParam(req) }, include: { section: true } });
+  if (!e || !sectionInScope(s, e.section)) throw notFound('Enrolment');
+  if (!e.isCurrent) throw conflict('This enrolment has already ended');
+  const b = z.object({ sectionId: z.number().int() }).parse(req.body);
+  if (b.sectionId === e.sectionId) return res.json(e);
+  const target = await sectionForWrite(s, b.sectionId);
+  if (target.schoolId !== e.section.schoolId || target.schoolYearId !== e.schoolYearId) {
+    throw badRequest('A class change must stay within the same school and school year. For a transfer, end this enrolment and enrol the learner at the receiving school.');
+  }
+  const moved = await prisma.$transaction(async (tx) => {
+    await tx.enrolment.update({ where: { id: e.id }, data: { isCurrent: false, endedAt: new Date(), endReason: 'Moved to another class' } });
+    return tx.enrolment.create({ data: { learnerId: e.learnerId, sectionId: target.id, schoolYearId: target.schoolYearId } });
+  });
+  await audit(req, 'UPDATE', 'Enrolment', e.id, { sectionId: e.sectionId }, { sectionId: target.id, enrolmentId: moved.id });
+  res.json(moved);
+}));
+
 learnersRouter.get('/:id', requirePermission('learner:read'), ah(async (req, res) => {
   const s = req.scope!;
   const id = idParam(req);
@@ -221,11 +251,9 @@ learnersRouter.put('/:id', requirePermission('learner:write'), ah(async (req, re
   const s = req.scope!;
   const id = idParam(req);
   const before = await findLearnerInScope(s, id);
-  const b = learnerBody.partial().parse(req.body);
-  if (b.lrn && b.lrn !== before.lrn) {
-    const dup = await prisma.learner.findUnique({ where: { lrn: b.lrn } });
-    if (dup) throw conflict('Another learner already uses this LRN', { field: 'lrn' });
-  }
+  const { lrn, ...b } = learnerBody.partial().parse(req.body);
+  // The LRN is the permanent learner identifier (spec §6.1); a database trigger backs this up.
+  if (lrn && lrn !== before.lrn) throw new AppError(409, 'LRN_IMMUTABLE', "A learner's LRN cannot be changed", { field: 'lrn' });
   const l = await prisma.learner.update({ where: { id }, data: b });
   await audit(req, 'UPDATE', 'Learner', id, before, l);
   res.json(l);
@@ -320,12 +348,17 @@ learnersRouter.post('/import', requirePermission('learner:write'), upload.single
     parsed.push({ row: rowNo, data: p.data });
   });
 
-  const existing = await prisma.learner.findMany({ where: { lrn: { in: parsed.map((p) => p.data.lrn) } } });
+  const existing = await prisma.learner.findMany({
+    where: { lrn: { in: parsed.map((p) => p.data.lrn) } },
+    include: { enrolments: { where: { schoolYearId: sec.schoolYearId, isCurrent: true }, select: { sectionId: true } } },
+  });
   const existingByLrn = new Map(existing.map((l) => [l.lrn, l]));
   for (const p of parsed) {
     const ex = existingByLrn.get(p.data.lrn);
     if (ex && ex.lastName.toLowerCase() !== p.data.lastName.toLowerCase()) {
       errors.push({ row: p.row, field: 'lrn', message: 'LRN is already registered to a learner with a different last name' });
+    } else if (ex?.enrolments.some((en) => en.sectionId !== sec.id)) {
+      errors.push({ row: p.row, field: 'lrn', message: SECOND_SECTION_MESSAGE });
     } else if (ex) {
       warnings.push({ row: p.row, field: 'lrn', message: 'Learner already registered; will be enrolled in this class (record not changed)' });
     }
