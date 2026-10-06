@@ -1,4 +1,4 @@
-# Optional. On a laptop without Docker, use `npm run setup` and `npm start` instead (see README).
+# Optional. On a laptop without Docker, use `npm run setup` and `npm start` instead (see documentation.md).
 services:
   app:
     build: { context: ., dockerfile: server/Dockerfile }
