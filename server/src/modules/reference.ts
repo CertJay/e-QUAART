@@ -203,16 +203,28 @@ referenceRouter.put('/grade-levels/:id', canWrite, ah(async (req, res) => {
   res.json(g);
 }));
 
-const laBody = z.object({ code: z.string().trim().min(1).max(12).toUpperCase(), name: z.string().trim().min(1), sortOrder: z.number().int().optional(), isActive: z.boolean().optional() });
+const laBody = z.object({
+  code: z.string().trim().min(1).max(12).toUpperCase(),
+  name: z.string().trim().min(1),
+  sortOrder: z.number().int().optional(),
+  isActive: z.boolean().optional(),
+  // Grade codes that take this subject; omitted/empty = every grade.
+  gradeLevels: z.array(z.string().trim().toUpperCase().regex(/^(K|G([1-9]|1[0-2]))$/, 'Use grade codes K, G1 … G12')).nullable().optional(),
+});
+/** An empty or null grade list is stored as NULL ("every grade"). */
+const laData = <T extends { gradeLevels?: string[] | null }>(b: T) => ({
+  ...b,
+  gradeLevels: b.gradeLevels === undefined ? undefined : b.gradeLevels?.length ? b.gradeLevels : Prisma.DbNull,
+});
 referenceRouter.post('/learning-areas', canWrite, ah(async (req, res) => {
-  const l = await prisma.learningArea.create({ data: laBody.parse(req.body) });
+  const l = await prisma.learningArea.create({ data: laData(laBody.parse(req.body)) });
   await audit(req, 'CREATE', 'LearningArea', l.id, null, l);
   res.status(201).json(l);
 }));
 referenceRouter.put('/learning-areas/:id', canWrite, ah(async (req, res) => {
   const id = idParam(req);
   const before = await prisma.learningArea.findUniqueOrThrow({ where: { id } });
-  const l = await prisma.learningArea.update({ where: { id }, data: laBody.partial().parse(req.body) });
+  const l = await prisma.learningArea.update({ where: { id }, data: laData(laBody.partial().parse(req.body)) });
   await audit(req, 'UPDATE', 'LearningArea', id, before, l);
   res.json(l);
 }));

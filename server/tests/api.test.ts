@@ -823,11 +823,44 @@ describe('data validation for learner and user profiles', () => {
   });
 });
 
+describe('MATATAG subjects and instruments per grade', () => {
+  it('refuses an assessment in a learning area the grade does not take', async () => {
+    const t = await asUser(TEACHER); // Grade 3 adviser
+    const ap = await prisma.learningArea.findUniqueOrThrow({ where: { code: 'AP' } });
+    const type = await prisma.assessmentType.findUniqueOrThrow({ where: { code: 'TERM_EXAM' } });
+    const res = await t.post('/assessments').send({ assessmentTypeId: type.id, schoolYearId: sy.id, termId: sy.terms.find((x) => x.code === 'T3')!.id, sectionId: teacherSection.id, learningAreaId: ap.id, maxScore: 20 });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toBe('Grade 3 does not take Araling Panlipunan (AP). Choose one of the grade’s learning areas.'.replace('’', "'"));
+  });
+
+  it('configures instruments per grade: Kinder MFAT/ECCD; G1–3 CRLA, RMA, LOA, Phil-IRI; G4–12 LOA, Phil-IRI', async () => {
+    const types = Object.fromEntries((await prisma.assessmentType.findMany()).map((t) => [t.code, t]));
+    const all = Array.from({ length: 12 }, (_, i) => `G${i + 1}`);
+    expect(types.MFAT.applicableGrades).toEqual(['K']);
+    expect(types.ECCD.applicableGrades).toEqual(['K']);
+    expect(types.CRLA.applicableGrades).toEqual(['G1', 'G2', 'G3']);
+    expect(types.RMA.applicableGrades).toEqual(['G1', 'G2', 'G3']);
+    expect(types.TERM_EXAM.applicableGrades).toEqual(all);
+    expect(types.TERM_EXAM.name).toMatch(/^LOA/);
+    expect(types.PHIL_IRI.applicableGrades).toEqual(all);
+    expect(types.SBA.isActive).toBe(false);
+    const boot = await (await asUser(TEACHER)).get('/reference/bootstrap');
+    const area = (code: string) => boot.body.learningAreas.find((l: { code: string }) => l.code === code);
+    expect(area('MAKA').gradeLevels).toEqual(['G1', 'G2', 'G3']);
+    expect(area('GENMATH').gradeLevels).toEqual(['G11', 'G12']);
+    expect(area('K-LLC').gradeLevels).toEqual(['K']);
+  });
+});
+
 describe('only the class adviser encodes', () => {
   it('lets a subject teacher view their assigned class but not encode, create assessments or manage the roster', async () => {
     const subj = await asUser('t.tnhs.math@equaart.local');
-    const assignment = await prisma.sectionTeacher.findFirstOrThrow({ where: { user: { email: 't.tnhs.math@equaart.local' }, section: { schoolYearId: sy.id } }, include: { section: true } });
-    const a = await prisma.assessment.findFirstOrThrow({ where: { sectionId: assignment.sectionId, status: 'DRAFT' }, include: { results: { take: 1 } } });
+    // The adviser check comes before any status check, so any assessment of an assigned class will do.
+    const a = await prisma.assessment.findFirstOrThrow({
+      where: { schoolYearId: sy.id, results: { some: {} }, section: { teachers: { some: { user: { email: 't.tnhs.math@equaart.local' } } } } },
+      include: { results: { take: 1 } },
+    });
+    const assignment = { sectionId: a.sectionId };
     const detail = await subj.get(`/assessments/${a.id}`);
     expect(detail.status).toBe(200);
     expect(detail.body).toMatchObject({ canEncode: false, canSubmit: false });

@@ -143,7 +143,7 @@ export interface Bootstrap {
   schoolYears: { id: number; label: string; isCurrent: boolean; startDate: string; endDate: string; terms: { id: number; code: string; name: string; sortOrder: number }[] }[];
   keyStages: { id: number; code: string; name: string; sortOrder: number }[];
   gradeLevels: { id: number; code: string; name: string; keyStageId: number; sortOrder: number; isActive: boolean }[];
-  learningAreas: { id: number; code: string; name: string; sortOrder: number; isActive: boolean; inScope: boolean }[];
+  learningAreas: { id: number; code: string; name: string; sortOrder: number; isActive: boolean; inScope: boolean; gradeLevels: string[] | null }[];
   assessmentTypes: { id: number; code: string; name: string; description: string | null; resultMode: 'PERCENTAGE' | 'PROFILE'; applicableGrades: string[] | null; isActive: boolean; models: { id: number; name: string; isProvisional: boolean; masteryThreshold: number; bands: Band[] }[] }[];
 }
 export interface PerfRow {

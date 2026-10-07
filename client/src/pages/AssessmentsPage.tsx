@@ -117,7 +117,7 @@ function NewAssessment({ presetSection, onClose, onCreated }: { presetSection: s
         <Field label="3. Term"><Select value={v.termId} onChange={set('termId')} options={(sy?.terms ?? []).map((t) => ({ value: t.id, label: t.name }))} placeholder="Select…" /></Field>
         <Field label="4. Class (grade & section)"><Select value={v.sectionId} onChange={set('sectionId')} options={advised.map((s) => ({ value: s.id, label: `${s.gradeLevel.name} – ${s.name}` }))} placeholder="Select…" /></Field>
         {sectionsQ.data && !advised.length && <Notice tone="warn">Assessments are created and encoded by the class adviser. You do not advise a class in this school year.</Notice>}
-        <Field label="5. Learning area"><Select value={v.learningAreaId} onChange={set('learningAreaId')} options={(boot?.learningAreas ?? []).filter((l) => l.isActive && l.inScope).map((l) => ({ value: l.id, label: l.name }))} placeholder="Select…" /></Field>
+        <Field label="5. Learning area"><Select value={v.learningAreaId} onChange={set('learningAreaId')} options={(boot?.learningAreas ?? []).filter((l) => l.isActive && l.inScope && (!section || !l.gradeLevels?.length || l.gradeLevels.includes(section.gradeLevel.code))).map((l) => ({ value: l.id, label: l.name }))} placeholder={section ? 'Select…' : 'Choose the class first'} /></Field>
         <Field label="Assessment date"><Input type="date" value={v.assessmentDate} onChange={set('assessmentDate')} /></Field>
         <Field label="Encoding closes" hint="Optional deadline for encoding."><Input type="date" value={v.windowClose} onChange={set('windowClose')} /></Field>
         {type?.resultMode === 'PERCENTAGE' && (

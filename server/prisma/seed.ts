@@ -65,10 +65,40 @@ const GRADES = [
   ['G7', 'Grade 7', 'KS3'], ['G8', 'Grade 8', 'KS3'], ['G9', 'Grade 9', 'KS3'], ['G10', 'Grade 10', 'KS3'],
   ['G11', 'Grade 11', 'KS4'], ['G12', 'Grade 12', 'KS4'],
 ] as const;
-const LEARNING_AREAS = [
-  ['FIL', 'Filipino'], ['ENG', 'English'], ['MATH', 'Mathematics'], ['SCI', 'Science'], ['AP', 'Araling Panlipunan'],
-  ['MAPEH', 'MAPEH'], ['EPP', 'EPP / TLE'], ['GMRC', 'GMRC / Values Education'], ['KDOM', 'Kindergarten Learning Domains'], ['SHS', 'Senior High School Subjects'],
-] as const;
+const G = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => `G${from + i}`);
+/** MATATAG learning areas and the grades that take them (code, name, grades). */
+const LEARNING_AREAS: [string, string, string[]][] = [
+  // Kindergarten: six learning domains
+  ['K-LLC', 'Language, Literacy, and Communication (LLC)', ['K']],
+  ['K-MT', 'Mathematical Thinking (MT)', ['K']],
+  ['K-ACE', 'Aesthetics and Creative Expression (ACE)', ['K']],
+  ['K-PHMD', 'Physical Health and Motor Development (PHMD)', ['K']],
+  ['K-SECD', 'Social Emotional Character Development (SECD)', ['K']],
+  ['K-PNE', 'Understanding Our Physical and Natural Environment (PNE)', ['K']],
+  // Grades 1–10
+  ['LANG', 'Language', ['G1']],
+  ['RL', 'Reading & Literacy', ['G1']],
+  ['ENG', 'English', G(2, 10)],
+  ['FIL', 'Filipino', G(2, 10)],
+  ['MATH', 'Mathematics', G(1, 10)],
+  ['SCI', 'Science', G(3, 10)],
+  ['AP', 'Araling Panlipunan (AP)', G(4, 10)],
+  ['GMRC', 'Good Manners and Right Conduct (GMRC)', G(1, 6)],
+  ['MAKA', 'Makabansa', G(1, 3)],
+  ['MA', 'Music & Arts', G(4, 6)],
+  ['PEH', 'Physical Education & Health (PEH)', G(4, 6)],
+  ['EPP', 'Edukasyong Pantahanan at Pangkabuhayan (EPP) / TLE', G(4, 6)],
+  ['VE', 'Values Education (VE)', G(7, 10)],
+  ['MAPEH', 'Music & Arts and Physical Education & Health (MAPEH)', G(7, 10)],
+  ['TLE', 'Technology and Livelihood Education (TLE) / TVL', G(7, 10)],
+  // Senior High School core subjects
+  ['EFFCOM', 'Effective Communication (Mabisang Komunikasyon)', G(11, 12)],
+  ['LCS', 'Life and Career Skills', G(11, 12)],
+  ['GENMATH', 'General Mathematics', G(11, 12)],
+  ['GENSCI', 'General Science', G(11, 12)],
+  ['PKL', 'Pag-aaral ng Kasaysayan at Lipunan', G(11, 12)],
+];
+const offered = (laCode: string, grade: string) => LEARNING_AREAS.find(([c]) => c === laCode)![2].includes(grade);
 
 /** Illustrative competency statements (not an official MELC/MATATAG list). */
 const COMPETENCY_TEMPLATES: Record<string, string[]> = {
@@ -86,6 +116,16 @@ const COMPETENCY_TEMPLATES: Record<string, string[]> = {
     'Nakikilala ang mga tunog at titik (palabigkasan)', 'Nakababasa nang may katatasan', 'Natutukoy ang kahulugan ng salita batay sa gamit',
     'Natutukoy ang pangunahing kaisipan ng teksto', 'Nakabubuo ng hinuha at konklusyon', 'Nagagamit nang wasto ang mga bahagi ng pananalita',
     'Nakasusulat ng talata', 'Napagsusunod-sunod ang mga pangyayari sa kuwento',
+  ],
+  LANG: [
+    'Listens and responds to simple texts', 'Uses familiar words to name people, places and things', 'Asks and answers simple questions',
+    'Follows two- to three-step directions', 'Talks about personal experiences in complete sentences', 'Uses polite expressions appropriately',
+    'Retells a short story heard', 'Describes objects using simple adjectives',
+  ],
+  RL: [
+    'Identifies letter names and sounds', 'Blends sounds to read simple words', 'Reads high-frequency words',
+    'Reads simple sentences with understanding', 'Writes letters and simple words legibly', 'Identifies characters and setting of a story',
+    'Sequences events in a short story', 'Answers literal questions about a text read',
   ],
   SCI: [
     'Describes properties of matter', 'Explains changes in matter', 'Describes the parts and functions of living things',
@@ -174,11 +214,11 @@ export async function seed() {
   const grade: Record<string, { id: number; sortOrder: number }> = {};
   for (const [i, [code, name, k]] of GRADES.entries()) grade[code] = await prisma.gradeLevel.create({ data: { code, name, sortOrder: i, keyStageId: ks[k] } });
   const la: Record<string, number> = {};
-  for (const [i, [code, name]] of LEARNING_AREAS.entries()) la[code] = (await prisma.learningArea.create({ data: { code, name, sortOrder: i } })).id;
+  for (const [i, [code, name, gradeLevels]] of LEARNING_AREAS.entries()) la[code] = (await prisma.learningArea.create({ data: { code, name, sortOrder: i, gradeLevels } })).id;
 
   const comps: Record<string, { id: number; code: string; difficulty: number }[]> = {};
   for (const [laCode, templates] of Object.entries(COMPETENCY_TEMPLATES)) {
-    for (const g of ['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10']) {
+    for (const g of G(1, 10).filter((x) => offered(laCode, x))) {
       const list = [];
       for (const [i, description] of templates.entries()) {
         const code = `${laCode}${g.slice(1)}-${String(i + 1).padStart(2, '0')}`;
@@ -203,19 +243,22 @@ export async function seed() {
     types[code] = { typeId: t.id, modelId: m.id, mode, bands: m.bands, threshold: m.masteryThreshold };
   };
   const confirm = 'Seeded for demonstration. Confirm levels and cut-offs against the current DepEd / SDO issuance before use.';
-  await mkType('TERM_EXAM', 'Term Examination (End-of-Term)', 'PERCENTAGE', 'End-of-term examination per learning area, itemised by competency (DepEd three-term calendar).', TERM_BANDS, confirm);
+  // LOA keeps the internal code TERM_EXAM. Grades 1–12 (not Kindergarten).
+  await mkType('TERM_EXAM', 'LOA — Learners Outcome Assessment (End-of-Term)', 'PERCENTAGE', 'End-of-term assessment per learning area, three terms per school year, itemised by competency.', TERM_BANDS, confirm, G(1, 12));
+  // Not one of the instruments the division uses; kept (inactive) so it can be re-enabled.
   await mkType('SBA', 'School-Based Assessment', 'PERCENTAGE', 'Other school-administered tests (diagnostic, summative, two teacher-developed summative tests per term).', TERM_BANDS, confirm);
+  await prisma.assessmentType.update({ where: { code: 'SBA' }, data: { isActive: false } });
   await mkType('CRLA', 'CRLA — Comprehensive Rapid Literacy Assessment', 'PROFILE', 'Key Stage 1 reading profile (Grades 1–3).', [
     { label: 'Grade Ready', descriptorKey: 'GRADE_READY', tier: 'TIER_1', color: '#2563eb', sortOrder: 1 },
     { label: 'Light Refresher', descriptorKey: 'LIGHT_REFRESHER', tier: 'TIER_2', color: '#0891b2', sortOrder: 2 },
     { label: 'Moderate Refresher', descriptorKey: 'MODERATE_REFRESHER', tier: 'TIER_2', color: '#d97706', sortOrder: 3 },
     { label: 'Full Refresher', descriptorKey: 'FULL_REFRESHER', tier: 'TIER_3', color: '#dc2626', sortOrder: 4 },
   ], confirm, ['G1', 'G2', 'G3']);
-  await mkType('PHIL_IRI', 'Phil-IRI — Philippine Informal Reading Inventory', 'PROFILE', 'Reading level from graded passages (Grades 2–10).', [
+  await mkType('PHIL_IRI', 'Phil-IRI — Philippine Informal Reading Inventory', 'PROFILE', 'Reading level from graded passages (Grades 1–12).', [
     { label: 'Independent', descriptorKey: 'INDEPENDENT', tier: 'TIER_1', color: '#2563eb', sortOrder: 1 },
     { label: 'Instructional', descriptorKey: 'INSTRUCTIONAL', tier: 'TIER_2', color: '#d97706', sortOrder: 2 },
     { label: 'Frustration', descriptorKey: 'FRUSTRATION', tier: 'TIER_3', color: '#dc2626', sortOrder: 3 },
-  ], confirm, ['G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10']);
+  ], confirm, G(1, 12));
   await mkType('RMA', 'RMA — Rapid Mathematics Assessment', 'PROFILE', 'Key Stage 1 numeracy skill profile (Grades 1–3).', [
     { label: 'At Grade Level', descriptorKey: 'AT_GRADE_LEVEL', tier: 'TIER_1', color: '#2563eb', sortOrder: 1 },
     { label: 'Transitioning', descriptorKey: 'TRANSITIONING', tier: 'TIER_2', color: '#0891b2', sortOrder: 2 },
@@ -341,7 +384,10 @@ export async function seed() {
 
   // ───────────── Assessments & results ─────────────
   const schoolEffect = Object.fromEntries(SCHOOLS.map((s) => [s.key, s.effect]));
-  const subjectsFor = (g: string) => (['G1', 'G2'].includes(g) ? ['MATH', 'ENG', 'FIL'] : ['MATH', 'ENG', 'FIL', 'SCI']);
+  // Learning areas given an LOA in the demo, among the grade's MATATAG subjects.
+  const subjectsFor = (g: string) => (g === 'G1' ? ['MATH', 'LANG', 'RL'] : g === 'G2' ? ['MATH', 'ENG', 'FIL'] : ['MATH', 'ENG', 'FIL', 'SCI']);
+  // CRLA is a literacy profile: Reading & Literacy in Grade 1, Filipino from Grade 2.
+  const crlaArea = (g: string) => (g === 'G1' ? 'RL' : 'FIL');
   const termIndex: Record<string, number> = { BOSY: 0, T1: 1, T2: 2, T3: 3, EOSY: 4 };
   let assessmentCount = 0;
 
@@ -360,7 +406,7 @@ export async function seed() {
     const items = compList.map((_, i) => (i % 2 === 0 ? 10 : 8));
     const maxScore = typeCode === 'TERM_EXAM' ? items.reduce((a, b) => a + b, 0) : null;
     const schoolName = SCHOOLS.find((s) => s.key === sec.schoolKey)!;
-    const typeName = { TERM_EXAM: 'Term Examination', CRLA: 'CRLA', PHIL_IRI: 'Phil-IRI', RMA: 'RMA' }[typeCode] ?? typeCode;
+    const typeName = { TERM_EXAM: 'LOA', CRLA: 'CRLA', PHIL_IRI: 'Phil-IRI', RMA: 'RMA' }[typeCode] ?? typeCode;
     const laName = LEARNING_AREAS.find(([c]) => c === laCode)![1];
     const a = await prisma.assessment.create({
       data: {
@@ -426,7 +472,7 @@ export async function seed() {
       const isKS1 = ['G1', 'G2', 'G3'].includes(g);
       for (const [termCode, date] of [['BOSY', '2025-07-01'], ['EOSY', '2026-03-20']] as const) {
         if (isKS1) {
-          await makeAssessment({ sec, syId, termCode, typeCode: 'CRLA', laCode: 'FIL', status: 'VERIFIED', date: on(date), growthBase });
+          await makeAssessment({ sec, syId, termCode, typeCode: 'CRLA', laCode: crlaArea(g), status: 'VERIFIED', date: on(date), growthBase });
           await makeAssessment({ sec, syId, termCode, typeCode: 'RMA', laCode: 'MATH', status: 'VERIFIED', date: on(date), growthBase });
         } else {
           await makeAssessment({ sec, syId, termCode, typeCode: 'PHIL_IRI', laCode: 'ENG', status: 'VERIFIED', date: on(date), growthBase });
@@ -443,7 +489,7 @@ export async function seed() {
     const g = sec.gradeCode;
     const isKS1 = ['G1', 'G2', 'G3'].includes(g);
     if (isKS1) {
-      await makeAssessment({ sec, syId: syCur.id, termCode: 'BOSY', typeCode: 'CRLA', laCode: 'FIL', status: 'VERIFIED', date: d('2026-06-29'), growthBase: 0 });
+      await makeAssessment({ sec, syId: syCur.id, termCode: 'BOSY', typeCode: 'CRLA', laCode: crlaArea(g), status: 'VERIFIED', date: d('2026-06-29'), growthBase: 0 });
       await makeAssessment({ sec, syId: syCur.id, termCode: 'BOSY', typeCode: 'RMA', laCode: 'MATH', status: 'VERIFIED', date: d('2026-06-29'), growthBase: 0 });
     } else {
       await makeAssessment({ sec, syId: syCur.id, termCode: 'BOSY', typeCode: 'PHIL_IRI', laCode: 'ENG', status: 'VERIFIED', date: d('2026-06-29'), growthBase: 0 });
@@ -475,12 +521,14 @@ export async function seed() {
     ENG: ['Guided reading in small groups', 'Explicit vocabulary and comprehension strategy lessons', 'Reading buddy programme'],
     FIL: ['Pagbasa sa maliit na pangkat (guided reading)', 'Remedial na pagbasa gamit ang mga kuwento', 'Sistematikong palabigkasan'],
     SCI: ['Hands-on investigation stations', 'Concept-mapping review sessions', 'Differentiated review worksheets'],
+    LANG: ['Daily oral language practice in small groups', 'Story-telling and picture-talk sessions', 'Vocabulary games with picture cards'],
+    RL: ['Daily phonics and blending drills', 'Guided reading of decodable texts', 'One-on-one reading with a reading buddy'],
   };
   let interventionCount = 0;
   async function makeInterventions(sections: Sec[], syId: number, termCode: string, startDate: Date, reassessProb: number) {
     for (const sec of sections) {
       const schoolCfg = SCHOOLS.find((s) => s.key === sec.schoolKey)!;
-      for (const laCode of ['MATH', 'ENG', 'FIL']) {
+      for (const laCode of ['MATH', 'ENG', 'FIL', 'LANG', 'RL']) {
         const gaps = await prisma.learningGap.findMany({
           where: { sectionId: sec.id, termId: terms[syId][termCode], learningAreaId: la[laCode], competencyId: { not: null } },
           include: { competency: true, assessmentResult: { include: { assessment: { include: { model: true } } } } },
@@ -551,14 +599,14 @@ export async function seed() {
   // Reading remediation for CRLA Full/Moderate Refresher learners (profile-level gaps).
   for (const sec of current.filter((s) => ['G1', 'G2', 'G3'].includes(s.gradeCode) && s.schoolKey !== 'LES')) {
     const gaps = await prisma.learningGap.findMany({
-      where: { sectionId: sec.id, termId: terms[syCur.id].BOSY, learningAreaId: la.FIL, competencyId: null, severity: 'TIER_3' },
+      where: { sectionId: sec.id, termId: terms[syCur.id].BOSY, learningAreaId: la[crlaArea(sec.gradeCode)], competencyId: null, severity: 'TIER_3' },
       include: { assessmentResult: true },
     });
     if (gaps.length < 2) continue;
     const i = await prisma.intervention.create({
       data: {
         title: 'Reading remediation for CRLA Full Refresher learners', schoolId: schools[sec.schoolKey], sectionId: sec.id, schoolYearId: syCur.id, termId: terms[syCur.id].BOSY,
-        learningAreaId: la.FIL, sourceAssessmentId: gaps[0].assessmentResult.assessmentId, tier: 'TIER_3', type: 'INTENSIVE', strategy: 'Daily one-on-one and small-group reading remediation',
+        learningAreaId: la[crlaArea(sec.gradeCode)], sourceAssessmentId: gaps[0].assessmentResult.assessmentId, tier: 'TIER_3', type: 'INTENSIVE', strategy: 'Daily one-on-one and small-group reading remediation',
         frequency: 'Daily, 30 minutes', bannerProgram: 'ARAL Programme', startDate: d('2026-07-06'), targetEndDate: d('2026-09-30'), reassessmentDate: d('2026-09-30'), status: 'ONGOING',
         ownerId: sec.adviserId, createdById: sec.adviserId,
       },

@@ -9,7 +9,7 @@ Assessment → Data capture → Quality assurance → Analysis → Learning gaps
    → Intervention → Monitoring → Reassessment → Evidence of improvement
 ```
 
-It pulls together results from CRLA, Phil-IRI, RMA, ELLNA, end-of-term examinations (DepEd three-term calendar) and school-based assessments. It classifies each result using configurable, instrument-specific performance levels. It then finds learning gaps for individual learners, classes, schools and the division, and tracks the interventions planned from those gaps until reassessment shows whether they worked.
+It pulls together results from CRLA, RMA, Phil-IRI, ELLNA, the LOA (Learners Outcome Assessment, end-of-term, three terms) and the Kindergarten MFAT and ECCD. It classifies each result using configurable, instrument-specific performance levels. It then finds learning gaps for individual learners, classes, schools and the division, and tracks the interventions planned from those gaps until reassessment shows whether they worked.
 
 It is **not** an exam-delivery platform, a grading system of record, or a replacement for LIS/EBEIS. The LRN is used as the learner identifier.
 
@@ -96,6 +96,18 @@ Extra demo accounts (same password): `mt.<school>@equaart.local` (a master teach
 
 `SEED_PROFILE=standard npm run db:seed` loads the smaller data set the automated tests use: four schools, 837 learners and two school years. The tests always use it.
 
+## Curriculum and who encodes
+
+Learning areas follow MATATAG and each is limited to the grades that take it (Makabansa in Grades 1–3, Music & Arts in Grades 4–6, MAPEH in Grades 7–10, the core subjects in Senior High, the six learning domains in Kindergarten). Instruments per grade:
+
+| Grades | Instruments |
+|---|---|
+| Kindergarten | MFAT, ECCD |
+| Grades 1–3 | CRLA, RMA, LOA, Phil-IRI |
+| Grades 4–12 | LOA, Phil-IRI |
+
+The **class adviser** is the only encoder for a class at every grade level. Subject teachers can view the classes they teach; master teachers, coordinators and the principal validate. Results of learners who left a class (dropped, transferred or moved) are read-only. Both lists are configuration under **Curriculum** and **Assessment standards**. MFAT and ECCD have no performance levels yet; add them before Kindergarten advisers can encode.
+
 ## Tests
 
 ```bash
@@ -107,7 +119,7 @@ npm run build
 The server integration tests use a separate SQLite file (`TEST_DATABASE_URL`, default `file:./test.db`), which is re-created and seeded on every run.
 
 The tests cover the MVP acceptance criteria in the build spec, including:
-- term-examination tiers are computed from the configured bands;
+- LOA tiers are computed from the configured bands;
 - CRLA "Full Refresher" is classified Tier 3 with no percentage rule;
 - verified results are locked, and every edit is audit-logged;
 - a mismatched scope gets 403/404;
@@ -144,7 +156,7 @@ docs/     architecture, data model, RBAC, metrics, spec traceability
 
 ## Important: validate before production use
 
-- **Performance levels are seed data and are flagged *provisional*.** This covers the term-examination bands, CRLA, Phil-IRI, RMA and ELLNA descriptors and cut-offs. The RMA descriptors in particular are placeholders. Confirm them against the current DepEd / Region IV-A / SDO issuances under **Assessment standards**. Saving a change re-classifies existing results and is audit-logged.
+- **Performance levels are seed data and are flagged *provisional*.** This covers the LOA bands, CRLA, Phil-IRI, RMA and ELLNA descriptors and cut-offs. The RMA descriptors in particular are placeholders. Confirm them against the current DepEd / Region IV-A / SDO issuances under **Assessment standards**. Saving a change re-classifies existing results and is audit-logged.
 - **Competencies are illustrative.** Load the official MELC/MATATAG lists under **Curriculum**.
 - Retention periods, alert thresholds and the small-cell threshold are defaults. Agree them with the DPO and CID.
 

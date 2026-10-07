@@ -40,7 +40,7 @@ The learner's longitudinal view is derived, not stored. `GET /learners/:id` retu
 
 ## 3. Classification engine (`server/src/domain/classification.ts`)
 
-- **Percentage instruments** (term examinations, school-based, ELLNA as seeded): `percentage = score ÷ max × 100`. The band is the one with the highest `minPct` that the percentage reaches.
+- **Percentage instruments** (LOA, ELLNA as seeded): `percentage = score ÷ max × 100`. The band is the one with the highest `minPct` that the percentage reaches.
 - **Profile instruments** (CRLA, Phil-IRI, RMA): the teacher records the descriptor, and it maps straight to a band and tier. **No percentage rule is ever applied.**
 - **Competency mastery**: `itemsCorrect / itemsTotal ≥ masteryThreshold` (per model, default 0.75). A competency gap's severity is Tier 3 when fewer than half the items are correct, otherwise Tier 2.
 - Band sets are validated before saving: the bands must cover 0%, must not overlap, and descriptor keys must be unique. **Editing a model re-classifies existing results** and re-derives gaps in one transaction, and the change is audit-logged.

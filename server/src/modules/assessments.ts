@@ -10,7 +10,7 @@ import { audit } from '../lib/audit.js';
 import { AppError, badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { ah, idParam, nullableDate, paged, paginationSchema } from '../lib/http.js';
 import { parseTabular } from '../lib/tabular.js';
-import { assessmentApplies } from '../domain/applicability.js';
+import { assessmentApplies, learningAreaOffered } from '../domain/applicability.js';
 import { learnerName } from '../domain/lrn.js';
 import { tierMetrics } from '../domain/metrics.js';
 import { assertYearAllows, yearAllows } from '../domain/schoolYear.js';
@@ -151,12 +151,17 @@ const createBody = z.object({
 
 async function validateConfig(b: { assessmentTypeId: number; schoolYearId: number; termId: number; learningAreaId: number; maxScore?: number | null; windowOpen?: Date | null; windowClose?: Date | null; competencies: { competencyId: number; itemsTotal: number }[] }, grade: { id: number; code: string; name: string }) {
   const gradeLevelId = grade.id;
-  const [type, term, comps] = await Promise.all([
+  const [type, term, comps, area] = await Promise.all([
     prisma.assessmentType.findUnique({ where: { id: b.assessmentTypeId }, include: { models: { where: { isActive: true }, orderBy: { createdAt: 'desc' } } } }),
     prisma.term.findUnique({ where: { id: b.termId } }),
     prisma.competency.findMany({ where: { id: { in: b.competencies.map((c) => c.competencyId) } } }),
+    prisma.learningArea.findUnique({ where: { id: b.learningAreaId } }),
   ]);
   if (!type || !type.isActive) throw badRequest('Select an active assessment type');
+  if (!area || !area.isActive) throw badRequest('Select an active learning area');
+  if (!learningAreaOffered(area.gradeLevels, grade.code)) {
+    throw badRequest(`${grade.name} does not take ${area.name}. Choose one of the grade's learning areas.`, [{ path: 'learningAreaId', message: 'Not a subject of this grade' }]);
+  }
   if (!assessmentApplies(type.applicableGrades, grade.code)) {
     throw badRequest(`${type.name} does not apply to ${grade.name} learners`, [{ path: 'assessmentTypeId', message: 'Not applicable to this grade level' }]);
   }

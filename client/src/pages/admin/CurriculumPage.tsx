@@ -28,7 +28,8 @@ export function CurriculumPage() {
     { key: 'curriculum', label: 'Curriculum', type: 'select', options: [{ value: 'MATATAG', label: 'MATATAG' }, { value: 'MELC', label: 'MELC' }, { value: 'OTHER', label: 'Other' }] },
     { key: 'isActive', label: 'Active', type: 'checkbox' },
   ];
-  const laFields: FieldDef[] = [{ key: 'code', label: 'Code (e.g. MATH)' }, { key: 'name', label: 'Name' }, { key: 'sortOrder', label: 'Display order', type: 'number' }, { key: 'isActive', label: 'Active', type: 'checkbox' }];
+  const laFields: FieldDef[] = [{ key: 'code', label: 'Code (e.g. MATH)' }, { key: 'name', label: 'Name' }, { key: 'gradeLevels', label: 'Grades that take it', hint: 'Grade codes separated by commas, e.g. G1, G2, G3. Leave blank for every grade.' }, { key: 'sortOrder', label: 'Display order', type: 'number' }, { key: 'isActive', label: 'Active', type: 'checkbox' }];
+  const toGrades = (v: Record<string, unknown>) => ({ ...v, gradeLevels: String(v.gradeLevels ?? '').split(/[\s,]+/).filter(Boolean) });
   const glFields: FieldDef[] = [{ key: 'code', label: 'Code (e.g. G7)' }, { key: 'name', label: 'Name' }, { key: 'keyStageId', label: 'Key stage', type: 'select', options: (boot?.keyStages ?? []).map((k) => ({ value: k.id, label: k.name })) }, { key: 'sortOrder', label: 'Order', type: 'number' }, { key: 'isActive', label: 'Active', type: 'checkbox' }];
   const ksFields: FieldDef[] = [{ key: 'code', label: 'Code' }, { key: 'name', label: 'Name' }, { key: 'sortOrder', label: 'Order', type: 'number' }];
   return (
@@ -56,9 +57,10 @@ export function CurriculumPage() {
         </Card>
       )}
       {tab === 'areas' && (
-        <Card pad={false} title="Learning areas" actions={<Button size="sm" onClick={() => setEdit({ title: 'New learning area', fields: laFields, initial: { isActive: true }, submit: (v) => api.post('/reference/learning-areas', v).then(done) })}>Add learning area</Button>}>
-          <Table rows={boot?.learningAreas ?? []} rowKey={(r) => r.id} onRowClick={(r) => setEdit({ title: 'Edit learning area', fields: laFields, initial: r, submit: (v) => api.put(`/reference/learning-areas/${r.id}`, v).then(done) })} columns={[
-            { key: 'code', label: 'Code' }, { key: 'name', label: 'Name' }, { key: 'isActive', label: 'Status', render: (r) => (r.isActive ? <Badge tone="green">Active</Badge> : <Badge>Inactive</Badge>) },
+        <Card pad={false} title="Learning areas" actions={<Button size="sm" onClick={() => setEdit({ title: 'New learning area', fields: laFields, initial: { isActive: true }, submit: (v) => api.post('/reference/learning-areas', toGrades(v)).then(done) })}>Add learning area</Button>}>
+          <Table rows={boot?.learningAreas ?? []} rowKey={(r) => r.id} onRowClick={(r) => setEdit({ title: 'Edit learning area', fields: laFields, initial: { ...r, gradeLevels: r.gradeLevels?.join(', ') ?? '' }, submit: (v) => api.put(`/reference/learning-areas/${r.id}`, toGrades(v)).then(done) })} columns={[
+            { key: 'code', label: 'Code' }, { key: 'name', label: 'Name' },
+            { key: 'grades', label: 'Grades', render: (r) => <span className="text-xs">{gradeRange(r.gradeLevels)}</span> }, { key: 'isActive', label: 'Status', render: (r) => (r.isActive ? <Badge tone="green">Active</Badge> : <Badge>Inactive</Badge>) },
           ]} />
         </Card>
       )}
@@ -79,4 +81,13 @@ export function CurriculumPage() {
       {edit && <FormModal title={edit.title} fields={edit.fields} initial={edit.initial} onClose={() => setEdit(null)} onSubmit={edit.submit} />}
     </>
   );
+}
+
+/** "G1, G2, G3" → "G1–G3"; empty → "All grades". */
+function gradeRange(codes: string[] | null) {
+  if (!codes?.length) return 'All grades';
+  const nums = codes.map((c) => (c === 'K' ? 0 : Number(c.slice(1)))).sort((a, b) => a - b);
+  const label = (n: number) => (n === 0 ? 'K' : `G${n}`);
+  const contiguous = nums.every((n, i) => i === 0 || n === nums[i - 1] + 1);
+  return contiguous && nums.length > 1 ? `${label(nums[0])}–${label(nums[nums.length - 1])}` : nums.map(label).join(', ');
 }

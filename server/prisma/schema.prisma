@@ -230,6 +230,7 @@ model LearningArea {
   name            String
   sortOrder       Int              @default(0)
   isActive        Boolean          @default(true)
+  gradeLevels     Json? // grade codes that take this subject (e.g. ["G1","G2","G3"]); null = every grade
   competencies    Competency[]
   assessments     Assessment[]
   interventions   Intervention[]
