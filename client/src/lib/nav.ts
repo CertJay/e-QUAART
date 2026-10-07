@@ -64,6 +64,7 @@ export const NAV: Record<Role, NavItem[]> = {
     { to: '/trends', label: 'Trends', icon: 'trend' },
     { to: '/classes', label: 'Classes', icon: 'grid' },
     { to: '/learners', label: 'Learners', icon: 'user' },
+    { to: '/transition', label: 'Next school year', icon: 'arrow' },
     { to: '/reports', label: 'Reports', icon: 'file' },
   ],
   EPS: [
@@ -93,12 +94,12 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
   PSDS: [],
   DIVISION_ADMIN: [],
-  SYSTEM_ADMIN: [D, ADMIN[0], ADMIN[4], GOV[0], { to: '/profile', label: 'Profile', icon: 'user-circle' }],
+  SYSTEM_ADMIN: [D, ADMIN[0], { to: '/transition', label: 'Next school year', icon: 'arrow', section: 'Administration' }, ADMIN[4], GOV[0], { to: '/profile', label: 'Profile', icon: 'user-circle' }],
   DPO: [D, ...GOV, { to: '/profile', label: 'Profile', icon: 'user-circle' }],
 };
-NAV.ASSESSMENT_COORDINATOR = NAV.MASTER_TEACHER;
+NAV.ASSESSMENT_COORDINATOR = [...NAV.MASTER_TEACHER.slice(0, -1), { to: '/transition', label: 'Next school year', icon: 'arrow' }, NAV.MASTER_TEACHER[NAV.MASTER_TEACHER.length - 1]];
 NAV.PSDS = NAV.CHIEF_CID.map((n) => (n.to === '/performance/division' ? { ...n, label: 'District overview' } : n));
-NAV.DIVISION_ADMIN = [...NAV.CHIEF_CID, ...ADMIN, ...GOV];
+NAV.DIVISION_ADMIN = [...NAV.CHIEF_CID, { to: '/transition', label: 'Next school year', icon: 'arrow', section: 'Administration' }, ...ADMIN, ...GOV];
 
 export const navFor = (me: Me) => NAV[me.role];
 

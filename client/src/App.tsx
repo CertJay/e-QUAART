@@ -17,6 +17,7 @@ import { AssessmentsPage } from './pages/AssessmentsPage';
 import { AssessmentDetailPage } from './pages/AssessmentDetailPage';
 import { GapsPage } from './pages/GapsPage';
 import { IlmpPage } from './pages/IlmpPage';
+import { TransitionPage } from './pages/TransitionPage';
 import { InterventionsPage } from './pages/InterventionsPage';
 import { InterventionDetailPage } from './pages/InterventionDetailPage';
 import { ReassessmentPage } from './pages/ReassessmentPage';
@@ -76,6 +77,7 @@ export function App() {
               <Route path="assessments" element={<RequirePermission perm="assessment:read"><AssessmentsPage /></RequirePermission>} />
               <Route path="assessments/:id" element={<RequirePermission perm="assessment:read"><AssessmentDetailPage /></RequirePermission>} />
               <Route path="gaps" element={<RequirePermission perm="gap:read"><GapsPage /></RequirePermission>} />
+              <Route path="transition" element={<TransitionPage />} />
               <Route path="ilmp" element={<RequirePermission perm="learner:read"><IlmpPage /></RequirePermission>} />
               <Route path="interventions" element={<RequirePermission perm="intervention:read"><InterventionsPage /></RequirePermission>} />
               <Route path="interventions/:id" element={<RequirePermission perm="intervention:read"><InterventionDetailPage /></RequirePermission>} />

@@ -108,6 +108,17 @@ Learning areas follow MATATAG and each is limited to the grades that take it (Ma
 
 The **class adviser** is the only encoder for a class at every grade level. Subject teachers can view the classes they teach; master teachers, coordinators and the principal validate. Results of learners who left a class (dropped, transferred or moved) are read-only. Both lists are configuration under **Curriculum** and **Assessment standards**. MFAT and ECCD have no performance levels yet; add them before Kindergarten advisers can encode.
 
+## Moving to the next school year
+
+Open **Next school year** (principal, assessment coordinator, division administrator, system administrator). It lists six steps in order, shows which are done and who does each one, and gives each person the button for their step:
+
+1. **Validate all results.** Advisers submit; validators validate.
+2. **Start the end-of-year validation window.** The system administrator moves the year to *Closing*; advisers can then only submit pending work.
+3. **Create the next school year** and its terms (division administrator).
+4. **Move learners** (principal or assessment coordinator, per school). Every learner is listed class by class with the usual outcome already chosen: *Promote to the next grade*, or *Completed* for the school's last grade. Change only the exceptions (*Retain*, *Decide later*) and confirm once. Next-year classes are created with the same section names (assign their advisers under **Classes**). Each learner keeps their history, and running it again never moves anyone twice.
+5. **Make the next school year current** (division administrator).
+6. **Close the previous school year** (system administrator). It becomes read-only history.
+
 ## Tests
 
 ```bash
