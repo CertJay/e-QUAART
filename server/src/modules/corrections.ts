@@ -147,6 +147,11 @@ correctionsRouter.post('/', requirePermission('correction:request'), ah(async (r
   }).parse(req.body);
   const r = await loadResult(s, b.assessmentResultId);
   assertCorrectable(r);
+  // Corrections come from the class adviser (the encoder) or a school leader, never a subject teacher.
+  if (req.user!.role === 'TEACHER') {
+    const sec = await prisma.section.findUniqueOrThrow({ where: { id: r.assessment.sectionId } });
+    if (sec.adviserId !== req.user!.id) throw forbidden('Only the class adviser can request a correction for this class');
+  }
   const a = r.assessment;
   const pending = await prisma.correctionRequest.findFirst({ where: { assessmentResultId: r.id, status: 'PENDING' } });
   if (pending) throw conflict('A correction request for this result is already pending. Wait for its decision or cancel it first.', { correctionRequestId: pending.id });

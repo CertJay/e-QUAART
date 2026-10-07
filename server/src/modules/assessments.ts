@@ -53,8 +53,15 @@ function assertEditable(a: { status: string; schoolYear: { label: string; status
   }
 }
 
-function assertCanEncode(req: Request, a: { sectionId: number; schoolId: number }) {
-  if (!sectionInScope(req.scope!, { id: a.sectionId, schoolId: a.schoolId })) throw forbidden('You can only encode results for your own classes');
+/**
+ * The class adviser is the only encoder for a class, at every grade level: they create the
+ * class's assessments and enter, import and submit results. Subject teachers, master teachers,
+ * coordinators and the principal can view; validators validate.
+ */
+const isAdviser = (req: Request, a: { section: { adviserId: number | null } }) => a.section.adviserId === req.user!.id;
+
+function assertCanEncode(req: Request, a: { section: { adviserId: number | null } }) {
+  if (!isAdviser(req, a)) throw forbidden('Only the class adviser encodes results for this class');
 }
 
 const statusLabel = (s: string) => ({ DROPPED: 'Dropped', TRANSFERRED_OUT: 'Transferred out', GRADUATED: 'Completed' } as Record<string, string>)[s] ?? 'No longer enrolled';
@@ -180,6 +187,7 @@ assessmentsRouter.post('/', requirePermission('assessment:write'), ah(async (req
   const b = createBody.parse(req.body);
   const section = await prisma.section.findUnique({ where: { id: b.sectionId }, include: { gradeLevel: true } });
   if (!section || !sectionInScope(s, section)) throw forbidden('You can only create assessments for your own classes');
+  if (section.adviserId !== req.user!.id) throw forbidden('Only the class adviser creates assessments for this class');
   if (section.schoolYearId !== b.schoolYearId) throw badRequest('The class belongs to a different school year');
   assertYearAllows(await prisma.schoolYear.findUniqueOrThrow({ where: { id: b.schoolYearId } }), 'encode');
   if (!learningAreaInScope(s, b.learningAreaId)) throw forbidden();
@@ -305,10 +313,10 @@ assessmentsRouter.get('/:id', requirePermission('assessment:read'), ah(async (re
   }
   const role = req.user!.role;
   const ownClass = sectionInScope(s, { id: a.sectionId, schoolId: a.schoolId });
-  const encoderRole = ['TEACHER', 'MASTER_TEACHER', 'ASSESSMENT_COORDINATOR'].includes(role);
-  const canEncode = ownClass && encoderRole && yearAllows(a.schoolYear.status, 'encode');
+  const adviser = ownClass && isAdviser(req, a) && hasPermission(role, 'assessment:write');
+  const canEncode = adviser && yearAllows(a.schoolYear.status, 'encode');
   // While a year is CLOSING, pending work can still be submitted though no longer edited.
-  const canSubmit = ownClass && encoderRole && yearAllows(a.schoolYear.status, 'finalize') && (a.status === 'DRAFT' || a.status === 'RETURNED');
+  const canSubmit = adviser && yearAllows(a.schoolYear.status, 'finalize') && (a.status === 'DRAFT' || a.status === 'RETURNED');
   const canVerify = ['MASTER_TEACHER', 'ASSESSMENT_COORDINATOR', 'PRINCIPAL'].includes(role) && a.createdById !== req.user!.id && yearAllows(a.schoolYear.status, 'finalize');
   // Validated results are locked; corrections go through a request (spec §7.4).
   const canRequestCorrection = a.status === 'VERIFIED' && s.learnerLevel && hasPermission(role, 'correction:request') && yearAllows(a.schoolYear.status, 'finalize');

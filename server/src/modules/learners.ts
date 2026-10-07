@@ -50,9 +50,15 @@ export async function findLearnerInScope(s: DataScope, id: number) {
   return l;
 }
 
+/** A teacher manages the roster only of the class they advise; subject teachers only view it. */
+function assertAdviserIfTeacher(s: DataScope, sec: { adviserId: number | null }) {
+  if (s.role === 'TEACHER' && sec.adviserId !== s.userId) throw forbidden('Only the class adviser manages this class roster');
+}
+
 async function sectionForWrite(s: DataScope, sectionId: number) {
   const sec = await prisma.section.findUnique({ where: { id: sectionId } });
   if (!sec || !sectionInScope(s, sec)) throw forbidden('You can only enrol learners into your own classes');
+  assertAdviserIfTeacher(s, sec);
   await assertYearIdAllows(sec.schoolYearId, 'encode');
   return sec;
 }
@@ -162,6 +168,7 @@ learnersRouter.post('/enrolments/:id/end', requirePermission('learner:write'), a
   const s = req.scope!;
   const e = await prisma.enrolment.findUnique({ where: { id: idParam(req) }, include: { section: true } });
   if (!e || !sectionInScope(s, e.section)) throw notFound('Enrolment');
+  assertAdviserIfTeacher(s, e.section);
   await assertYearIdAllows(e.schoolYearId, 'encode');
   const b = z.object({ status: z.enum(['TRANSFERRED_OUT', 'DROPPED', 'GRADUATED']), reason: z.string().trim().max(200).optional() }).parse(req.body);
   await prisma.$transaction([
@@ -180,6 +187,7 @@ learnersRouter.patch('/enrolments/:id', requirePermission('learner:write'), ah(a
   const s = req.scope!;
   const e = await prisma.enrolment.findUnique({ where: { id: idParam(req) }, include: { section: true } });
   if (!e || !sectionInScope(s, e.section)) throw notFound('Enrolment');
+  assertAdviserIfTeacher(s, e.section);
   if (!e.isCurrent) throw conflict('This enrolment has already ended');
   const b = z.object({ sectionId: z.number().int() }).parse(req.body);
   if (b.sectionId === e.sectionId) return res.json(e);

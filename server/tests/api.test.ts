@@ -823,6 +823,36 @@ describe('data validation for learner and user profiles', () => {
   });
 });
 
+describe('only the class adviser encodes', () => {
+  it('lets a subject teacher view their assigned class but not encode, create assessments or manage the roster', async () => {
+    const subj = await asUser('t.tnhs.math@equaart.local');
+    const assignment = await prisma.sectionTeacher.findFirstOrThrow({ where: { user: { email: 't.tnhs.math@equaart.local' }, section: { schoolYearId: sy.id } }, include: { section: true } });
+    const a = await prisma.assessment.findFirstOrThrow({ where: { sectionId: assignment.sectionId, status: 'DRAFT' }, include: { results: { take: 1 } } });
+    const detail = await subj.get(`/assessments/${a.id}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body).toMatchObject({ canEncode: false, canSubmit: false });
+    const put = await subj.put(`/assessments/${a.id}/results`).send({ entries: [{ learnerId: a.results[0].learnerId, isAbsent: true }] });
+    expect(put.status).toBe(403);
+    expect(put.body.error.message).toBe('Only the class adviser encodes results for this class');
+    const math = await prisma.learningArea.findUniqueOrThrow({ where: { code: 'MATH' } });
+    const t3 = sy.terms.find((x) => x.code === 'T3')!;
+    const type = await prisma.assessmentType.findUniqueOrThrow({ where: { code: 'TERM_EXAM' } });
+    expect((await subj.post('/assessments').send({ assessmentTypeId: type.id, schoolYearId: sy.id, termId: t3.id, sectionId: assignment.sectionId, learningAreaId: math.id, maxScore: 20 })).status).toBe(403);
+    expect((await subj.post('/learners').send({ lrn: '999999530001', lastName: 'Lacson', firstName: 'Ana', sex: 'FEMALE', sectionId: assignment.sectionId })).status).toBe(403);
+  });
+
+  it('lets validators view and validate but not encode a class they do not advise', async () => {
+    const draft = await prisma.assessment.findFirstOrThrow({ where: { sectionId: teacherSection.id, status: 'DRAFT', schoolYearId: sy.id }, include: { results: { take: 1 } } });
+    for (const email of [COORD, 'mt.bpes@equaart.local']) {
+      const u = await asUser(email);
+      expect((await u.get(`/assessments/${draft.id}`)).body.canEncode).toBe(false);
+      expect((await u.put(`/assessments/${draft.id}/results`).send({ entries: [{ learnerId: draft.results[0].learnerId, isAbsent: true }] })).status, email).toBe(403);
+      expect((await u.post(`/assessments/${draft.id}/submit`)).status, email).toBe(403);
+    }
+    expect((await (await asUser(TEACHER)).get(`/assessments/${draft.id}`)).body.canEncode).toBe(true);
+  });
+});
+
 describe('learners who leave a class', () => {
   it('keeps the results of a dropped learner read-only (grid and import)', async () => {
     const t = await asUser(TEACHER);

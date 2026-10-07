@@ -32,7 +32,7 @@ describe('Persona · Master Teacher (validator)', () => {
     expect(ids).toEqual(expect.arrayContaining([toValidate, toReturn]));
     const detail = await mt.get(`/assessments/${toValidate}`);
     expect(detail.body.canVerify).toBe(true);
-    expect(detail.body.canEncode).toBe(true); // Master Teachers may encode for any class in their school
+    expect(detail.body.canEncode).toBe(false); // only the class adviser encodes
     expect((await mt.get(`/assessments/${toValidate}/qa`)).body.blocking).toBe(false);
   });
 

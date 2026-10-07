@@ -62,7 +62,7 @@ export function AssessmentsPage() {
 }
 
 interface Competency { id: number; code: string; description: string }
-interface Section { id: number; name: string; gradeLevel: { id: number; code: string; name: string }; school: { name: string } }
+interface Section { id: number; name: string; gradeLevel: { id: number; code: string; name: string }; school: { name: string }; adviser: { id: number } | null }
 
 /** Mirrors the server rule (spec §3.5): no list = every grade except Kindergarten. */
 const applies = (grades: string[] | null, gradeCode: string) => (grades?.length ? grades.includes(gradeCode) : gradeCode !== 'K');
@@ -70,11 +70,14 @@ const applies = (grades: string[] | null, gradeCode: string) => (grades?.length 
 function NewAssessment({ presetSection, onClose, onCreated }: { presetSection: string; onClose: () => void; onCreated: (id: number) => void }) {
   const boot = useBootstrap().data;
   const period = usePeriod();
+  const me = useAuth().user!;
   const [v, setV] = useState({ assessmentTypeId: '', schoolYearId: String(period.schoolYearId ?? ''), termId: String(period.termId ?? ''), sectionId: presetSection, learningAreaId: '', maxScore: '', assessmentDate: new Date().toISOString().slice(0, 10), windowClose: '', title: '' });
   const [items, setItems] = useState<Record<number, string>>({});
   const [error, setError] = useState<unknown>(null);
-  const sections = useApi<Section[]>('/sections', { schoolYearId: v.schoolYearId, mine: undefined });
-  const section = sections.data?.find((s) => String(s.id) === v.sectionId);
+  const sectionsQ = useApi<Section[]>('/sections', { schoolYearId: v.schoolYearId, mine: undefined });
+  // Only the class adviser creates and encodes a class's assessments.
+  const advised = (sectionsQ.data ?? []).filter((s) => s.adviser?.id === me.id);
+  const section = advised.find((s) => String(s.id) === v.sectionId);
   const type = boot?.assessmentTypes.find((t) => String(t.id) === v.assessmentTypeId);
   const comps = useApi<Competency[]>(section && v.learningAreaId ? '/reference/competencies' : null, { learningAreaId: v.learningAreaId, gradeLevelId: section?.gradeLevel.id });
   const sy = boot?.schoolYears.find((s) => String(s.id) === v.schoolYearId);
@@ -112,7 +115,8 @@ function NewAssessment({ presetSection, onClose, onCreated }: { presetSection: s
         )}
         <Field label="2. School year"><Select value={v.schoolYearId} onChange={set('schoolYearId')} options={(boot?.schoolYears ?? []).map((s) => ({ value: s.id, label: s.label }))} /></Field>
         <Field label="3. Term"><Select value={v.termId} onChange={set('termId')} options={(sy?.terms ?? []).map((t) => ({ value: t.id, label: t.name }))} placeholder="Select…" /></Field>
-        <Field label="4. Class (grade & section)"><Select value={v.sectionId} onChange={set('sectionId')} options={(sections.data ?? []).map((s) => ({ value: s.id, label: `${s.gradeLevel.name} – ${s.name}` }))} placeholder="Select…" /></Field>
+        <Field label="4. Class (grade & section)"><Select value={v.sectionId} onChange={set('sectionId')} options={advised.map((s) => ({ value: s.id, label: `${s.gradeLevel.name} – ${s.name}` }))} placeholder="Select…" /></Field>
+        {sectionsQ.data && !advised.length && <Notice tone="warn">Assessments are created and encoded by the class adviser. You do not advise a class in this school year.</Notice>}
         <Field label="5. Learning area"><Select value={v.learningAreaId} onChange={set('learningAreaId')} options={(boot?.learningAreas ?? []).filter((l) => l.isActive && l.inScope).map((l) => ({ value: l.id, label: l.name }))} placeholder="Select…" /></Field>
         <Field label="Assessment date"><Input type="date" value={v.assessmentDate} onChange={set('assessmentDate')} /></Field>
         <Field label="Encoding closes" hint="Optional deadline for encoding."><Input type="date" value={v.windowClose} onChange={set('windowClose')} /></Field>
