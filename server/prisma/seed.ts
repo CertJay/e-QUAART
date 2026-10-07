@@ -648,6 +648,7 @@ export async function seed() {
       await prisma.ilmp.create({
         data: {
           learnerId: r.learnerId, learningAreaId: r.assessment.learningAreaId, schoolYearId: syCur.id, termId: r.assessment.termId,
+          sectionId: r.assessment.sectionId, supportLevel: 'INTENSIVE', generated: true,
           identifiedGaps: gapText, strategies: `${pick(STRATEGIES[laCode] ?? STRATEGIES.MATH)}; weekly check-in with the parent`,
           monitoringNotes: rand() < 0.5 ? pick(['Week 2: attends all sessions, still needs prompts', 'Week 3: improving; can now explain steps', 'Parent conference held; home reading log started']) : null,
           status: pick(['ACTIVE', 'ACTIVE', 'ACTIVE', 'DRAFT', 'COMPLETED']), createdById: r.assessment.createdById,

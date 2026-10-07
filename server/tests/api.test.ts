@@ -886,6 +886,54 @@ describe('only the class adviser encodes', () => {
   });
 });
 
+describe('automated ILMP (adviser only reviews and finalizes)', () => {
+  it('drafts one plan per learner and learning area from open gaps, without duplicates', async () => {
+    const t = await asUser(TEACHER);
+    const first = await t.post('/ilmps/generate').send({ sectionId: teacherSection.id });
+    expect(first.status).toBe(201);
+    expect(first.body.created).toBeGreaterThan(0);
+    expect((await t.post('/ilmps/generate').send({ sectionId: teacherSection.id })).body.created).toBe(0);
+
+    const list = await t.get(`/ilmps?sectionId=${teacherSection.id}&status=DRAFT`);
+    expect(list.body.canEdit).toBe(true);
+    const plan = list.body.data[0];
+    expect(plan).toMatchObject({ status: 'DRAFT', generated: true });
+    expect(['TARGETED', 'INTENSIVE']).toContain(plan.supportLevel);
+    expect(plan.identifiedGaps).toMatch(/^• /);
+    const pairs = list.body.data.map((p: { learner: { id: number }; learningArea: { id: number } }) => `${p.learner.id}:${p.learningArea.id}`);
+    expect(new Set(pairs).size).toBe(pairs.length);
+    // No plan for a learner who is no longer in the class.
+    const left = await prisma.learner.findMany({ where: { status: { not: 'ACTIVE' }, enrolments: { some: { sectionId: teacherSection.id } } }, select: { id: true } });
+    for (const l of left) expect(pairs.some((k: string) => k.startsWith(`${l.id}:`))).toBe(false);
+  });
+
+  it('lets only the adviser change the support level, add a note, finalize and complete', async () => {
+    const t = await asUser(TEACHER);
+    const drafts = (await t.get(`/ilmps?sectionId=${teacherSection.id}&status=DRAFT`)).body.data as { id: number; supportLevel: string; strategies: string }[];
+    const p = drafts[0];
+
+    const coord = await asUser(COORD);
+    expect((await coord.get(`/ilmps?sectionId=${teacherSection.id}`)).body.canEdit).toBe(false);
+    expect((await coord.post('/ilmps/generate').send({ sectionId: teacherSection.id })).status).toBe(403);
+    expect((await coord.post('/ilmps/finalize').send({ ids: [p.id] })).status).toBe(403);
+
+    const level = p.supportLevel === 'INTENSIVE' ? 'TARGETED' : 'INTENSIVE';
+    const changed = await t.patch(`/ilmps/${p.id}`).send({ supportLevel: level });
+    expect(changed.body.supportLevel).toBe(level);
+    expect(changed.body.strategies).not.toBe(p.strategies); // default wording follows the level
+    const noted = await t.patch(`/ilmps/${drafts[1].id}`).send({ note: 'Reading buddy every lunch break' });
+    expect(noted.body.strategies).toBe('Reading buddy every lunch break');
+    expect((await t.patch(`/ilmps/${p.id}`).send({ status: 'COMPLETED' })).status).toBe(400); // finalize first
+
+    const fin = await t.post('/ilmps/finalize').send({ ids: drafts.map((d) => d.id) });
+    expect(fin.body.finalized).toBe(drafts.length);
+    const active = await t.get(`/ilmps?sectionId=${teacherSection.id}&status=ACTIVE`);
+    expect(active.body.data.length).toBeGreaterThanOrEqual(drafts.length);
+    const done = await t.patch(`/ilmps/${p.id}`).send({ status: 'COMPLETED' });
+    expect(done.body.status).toBe('COMPLETED');
+  });
+});
+
 describe('learners who leave a class', () => {
   it('keeps the results of a dropped learner read-only (grid and import)', async () => {
     const t = await asUser(TEACHER);

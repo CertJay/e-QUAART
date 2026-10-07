@@ -19,7 +19,7 @@ interface Profile {
   }[];
   gaps: { id: number; status: string; severity: Tier; masteryPct: number | null; competency: { code: string; description: string } | null; assessmentResult: { assessment: { learningArea: { name: string }; term: { name: string }; schoolYear: { label: string }; assessmentType: { name: string } } } }[];
   interventions: { id: number; decision: string | null; prePercentage: number | null; preTier: Tier | null; intervention: { id: number; title: string; status: string; strategy: string; learningArea: { name: string }; owner: { fullName: string } }; reassessments: { percentage: number | null; tier: Tier | null; date: string; band: { label: string } | null }[]; effectiveness: { scoreDifference: number | null; levelChange: string; signal: string } | null }[];
-  ilmps: { id: number; status: string; identifiedGaps: string; strategies: string; monitoringNotes: string | null; learningArea: { name: string }; createdAt: string }[];
+  ilmps: { id: number; status: string; supportLevel: string | null; identifiedGaps: string; strategies: string; monitoringNotes: string | null; learningArea: { name: string }; createdAt: string }[];
 }
 
 const TREND = { UP: { g: '▲', c: 'text-emerald-700 dark:text-emerald-300', t: 'improved' }, DOWN: { g: '▼', c: 'text-red-700 dark:text-red-300', t: 'declined' }, SAME: { g: '■', c: 'text-ink-3', t: 'no change' } };
@@ -126,9 +126,9 @@ export function LearnerProfilePage() {
             <div className="space-y-3">
               {l.ilmps.map((p) => (
                 <div key={p.id} className="rounded border border-line p-3 text-sm">
-                  <div className="mb-1 flex items-center gap-2"><span className="font-medium">{p.learningArea.name}</span><Badge>{humanize(p.status)}</Badge><span className="text-xs text-ink-3">{date(p.createdAt)}</span></div>
+                  <div className="mb-1 flex items-center gap-2"><span className="font-medium">{p.learningArea.name}</span><Badge>{humanize(p.status)}</Badge>{p.supportLevel && <Badge tone="blue">{humanize(p.supportLevel)} support</Badge>}<span className="text-xs text-ink-3">{date(p.createdAt)}</span></div>
                   <div className="text-xs text-ink-3">Identified gaps</div><p className="whitespace-pre-line">{p.identifiedGaps}</p>
-                  <div className="mt-2 text-xs text-ink-3">Strategies</div><p className="whitespace-pre-line">{p.strategies}</p>
+                  <div className="mt-2 text-xs text-ink-3">Support</div><p className="whitespace-pre-line">{p.strategies}</p>
                   {p.monitoringNotes && <><div className="mt-2 text-xs text-ink-3">Monitoring notes</div><p className="whitespace-pre-line">{p.monitoringNotes}</p></>}
                 </div>
               ))}

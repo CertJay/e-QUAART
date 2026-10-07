@@ -24,6 +24,7 @@ import { reportsRouter } from './modules/reports.js';
 import { usersRouter } from './modules/users.js';
 import { governanceRouter } from './modules/governance.js';
 import { correctionsRouter } from './modules/corrections.js';
+import { ilmpsRouter } from './modules/ilmps.js';
 
 export function createApp() {
   const app = express();
@@ -62,6 +63,7 @@ export function createApp() {
   api.use('/learners', learnersRouter);
   api.use('/assessments', assessmentsRouter);
   api.use('/correction-requests', correctionsRouter);
+  api.use('/ilmps', ilmpsRouter);
   api.use('/analytics', analyticsRouter);
   api.use('/gaps', gapsRouter);
   api.use('/interventions', interventionsRouter);
