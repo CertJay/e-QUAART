@@ -18,8 +18,8 @@ export const LIMITS = {
   emailLocalPart: 64,
   search: 100,
   /** Plausible learner age range (completed years, as of today). Inclusive on both ends. */
-  learnerMinAge: 3,
-  learnerMaxAge: 25,
+  learnerMinAge: 5,
+  learnerMaxAge: 65,
   minYear: 1900,
   maxYear: 2100,
 } as const;

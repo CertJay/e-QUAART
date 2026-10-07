@@ -70,10 +70,10 @@ describe('age boundaries', () => {
 
   it('accepts learners exactly at the minimum and maximum age and rejects one day outside', () => {
     const today = '2026-10-05';
-    expect(birthdateProblems('2023-10-05', today)).toBeNull(); // exactly 3
-    expect(birthdateProblems('2023-10-06', today)).toMatch(/minimum is 3/); // 2 years, 364 days
-    expect(birthdateProblems('2000-10-06', today)).toBeNull(); // 25, a day before turning 26
-    expect(birthdateProblems('2000-10-05', today)).toMatch(/maximum is 25/); // turns 26 today
+    expect(birthdateProblems('2021-10-05', today)).toBeNull(); // exactly 5
+    expect(birthdateProblems('2021-10-06', today)).toMatch(/minimum is 5/); // 4 years, 364 days
+    expect(birthdateProblems('1960-10-06', today)).toBeNull(); // 65, a day before turning 66
+    expect(birthdateProblems('1960-10-05', today)).toMatch(/maximum is 65/); // turns 66 today
   });
 
   it('treats blank as "no birthdate" and reports the precise problem otherwise', () => {

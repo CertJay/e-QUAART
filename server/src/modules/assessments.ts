@@ -57,18 +57,24 @@ function assertCanEncode(req: Request, a: { sectionId: number; schoolId: number 
   if (!sectionInScope(req.scope!, { id: a.sectionId, schoolId: a.schoolId })) throw forbidden('You can only encode results for your own classes');
 }
 
-/** Learners on the assessment roster: current enrolments plus anyone who already has a result. */
+const statusLabel = (s: string) => ({ DROPPED: 'Dropped', TRANSFERRED_OUT: 'Transferred out', GRADUATED: 'Completed' } as Record<string, string>)[s] ?? 'No longer enrolled';
+
+/**
+ * Learners on the assessment roster: current enrolments plus anyone who already has a result.
+ * Only `enrolled` learners (currently in this class) may have results entered or changed;
+ * a learner who was dropped, transferred or moved keeps their past results read-only.
+ */
 async function roster(a: { id: number; sectionId: number }) {
   const [enrolments, results] = await Promise.all([
-    prisma.enrolment.findMany({ where: { sectionId: a.sectionId, learner: { deletedAt: null } }, include: { learner: true } }),
+    prisma.enrolment.findMany({ where: { sectionId: a.sectionId, learner: { deletedAt: null } }, include: { learner: true }, orderBy: { dateEnrolled: 'asc' } }),
     prisma.assessmentResult.findMany({ where: { assessmentId: a.id }, include: { learner: true } }),
   ]);
-  const map = new Map<number, { learner: (typeof enrolments)[number]['learner']; enrolled: boolean }>();
+  const map = new Map<number, { learner: (typeof enrolments)[number]['learner']; enrolled: boolean; leftReason: string | null }>();
   for (const e of enrolments) {
-    const cur = map.get(e.learnerId);
-    map.set(e.learnerId, { learner: e.learner, enrolled: (cur?.enrolled ?? false) || e.isCurrent });
+    const enrolled = ((map.get(e.learnerId)?.enrolled ?? false) || e.isCurrent) && e.learner.status === 'ACTIVE';
+    map.set(e.learnerId, { learner: e.learner, enrolled, leftReason: enrolled ? null : (e.endReason ?? statusLabel(e.learner.status)) });
   }
-  for (const r of results) if (!map.has(r.learnerId)) map.set(r.learnerId, { learner: r.learner, enrolled: false });
+  for (const r of results) if (!map.has(r.learnerId)) map.set(r.learnerId, { learner: r.learner, enrolled: false, leftReason: 'Not in this class' });
   return [...map.values()].sort((x, y) => x.learner.sex.localeCompare(y.learner.sex) || x.learner.lastName.localeCompare(y.learner.lastName) || x.learner.firstName.localeCompare(y.learner.firstName));
 }
 
@@ -290,9 +296,10 @@ assessmentsRouter.get('/:id', requirePermission('assessment:read'), ah(async (re
   let rows = null;
   if (s.learnerLevel) {
     const byLearner = new Map(results.map((r) => [r.learnerId, r]));
-    rows = (await roster(a)).map(({ learner, enrolled }) => ({
-      learner: { id: learner.id, lrn: learner.lrn, name: learnerName(learner), sex: learner.sex },
+    rows = (await roster(a)).map(({ learner, enrolled, leftReason }) => ({
+      learner: { id: learner.id, lrn: learner.lrn, name: learnerName(learner), sex: learner.sex, status: learner.status },
       enrolled,
+      leftReason,
       result: byLearner.get(learner.id) ?? null,
     }));
   }
@@ -336,8 +343,15 @@ assessmentsRouter.put('/:id/results', requirePermission('assessment:write'), ah(
   assertEditable(a);
   const { entries } = z.object({ entries: z.array(entrySchema).max(500) }).parse(req.body);
   const r = await roster(a);
-  const allowed = new Set(r.map((x) => x.learner.id));
-  const errors = entries.flatMap((e) => (allowed.has(e.learnerId) ? validateEntry(a, e) : [{ learnerId: e.learnerId, field: 'learnerId', message: 'Learner is not enrolled in this class' }]));
+  const byId = new Map(r.map((x) => [x.learner.id, x]));
+  const errors = entries.flatMap((e) => {
+    const row = byId.get(e.learnerId);
+    if (!row) return [{ learnerId: e.learnerId, field: 'learnerId', message: 'Learner is not enrolled in this class' }];
+    if (!row.enrolled) {
+      return [{ learnerId: e.learnerId, field: 'learnerId', message: `${learnerName(row.learner)} is no longer in this class (${row.leftReason}); their results are read-only` }];
+    }
+    return validateEntry(a, e);
+  });
   const ids = entries.map((e) => e.learnerId);
   if (new Set(ids).size !== ids.length) errors.push({ message: 'The same learner appears twice', field: 'learnerId' } as never);
   if (errors.length) throw badRequest('Some results are invalid. Nothing was saved.', errors);
@@ -391,7 +405,7 @@ assessmentsRouter.post('/:id/results/import', requirePermission('assessment:writ
   const existing = await prisma.assessmentResult.findMany({ where: { assessmentId: a.id }, select: { learnerId: true } });
   const parsed = parseResultRows(rows, {
     assessment: a,
-    rosterByLrn: new Map(r.map((x) => [x.learner.lrn, { learnerId: x.learner.id, enrolled: x.enrolled }])),
+    rosterByLrn: new Map(r.map((x) => [x.learner.lrn, { learnerId: x.learner.id, enrolled: x.enrolled, leftReason: x.leftReason }])),
     existingLearnerIds: new Set(existing.map((x) => x.learnerId)),
   });
   const summary = { rows: rows.length, valid: parsed.entries.length, errorCount: parsed.errors.length, warningCount: parsed.warnings.length };

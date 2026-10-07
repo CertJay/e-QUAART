@@ -151,7 +151,7 @@ export async function applyEntries(tx: Prisma.TransactionClient, a: FullAssessme
 // ───────────── Import parsing ─────────────
 export interface ImportContext {
   assessment: FullAssessment & { gradeLevel: { code: string; name: string }; learningArea: { code: string; name: string }; section: { name: string } };
-  rosterByLrn: Map<string, { learnerId: number; enrolled: boolean }>;
+  rosterByLrn: Map<string, { learnerId: number; enrolled: boolean; leftReason?: string | null }>;
   existingLearnerIds: Set<number>;
 }
 
@@ -187,7 +187,7 @@ export function parseResultRows(rows: Record<string, string>[], ctx: ImportConte
     seen.set(lrn, row);
     const learner = ctx.rosterByLrn.get(lrn);
     if (!learner) return err('lrn', 'Learner is not enrolled in this class (invalid learner or section)');
-    if (!learner.enrolled) warnings.push({ row, field: 'lrn', message: 'Learner is no longer currently enrolled in this class' });
+    if (!learner.enrolled) return err('lrn', `Learner is no longer in this class (${learner.leftReason ?? 'not enrolled'}); their results are read-only`);
 
     const gl = (r.grade_level ?? r.grade ?? '').trim().toLowerCase();
     if (gl && ![a.gradeLevel.code.toLowerCase(), a.gradeLevel.name.toLowerCase(), a.gradeLevel.name.replace(/grade\s*/i, '').toLowerCase()].includes(gl)) {

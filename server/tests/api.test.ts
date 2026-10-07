@@ -730,8 +730,10 @@ describe('data validation for learner and user profiles', () => {
     const t = await asUser(TEACHER);
     const future = await t.post('/learners').send(learner('999999500001', { birthdate: '2099-01-01' }));
     expect(future.body.error.details[0].message).toBe('Birthdate cannot be in the future');
-    const tooOld = await t.post('/learners').send(learner('999999500001', { birthdate: '1990-01-01' }));
-    expect(tooOld.body.error.details[0].message).toMatch(/maximum is 25/);
+    const tooOld = await t.post('/learners').send(learner('999999500001', { birthdate: '1950-01-01' }));
+    expect(tooOld.body.error.details[0].message).toMatch(/maximum is 65/);
+    const tooYoung = await t.post('/learners').send(learner('999999500001', { birthdate: '2022-06-01' }));
+    expect(tooYoung.body.error.details[0].message).toMatch(/minimum is 5/);
     const withTime = await t.post('/learners').send(learner('999999500001', { birthdate: '2016-03-01T00:00:00+08:00' }));
     expect(withTime.status).toBe(400);
   });
@@ -818,6 +820,31 @@ describe('data validation for learner and user profiles', () => {
     const fresh = await admin.put(`/users/${created.body.id}`).send({ position: 'Teacher II', expectedUpdatedAt: created.body.updatedAt });
     expect(fresh.status).toBe(200);
     expect(fresh.body.scopes).toHaveLength(1); // a partial edit must not wipe the account's assignments
+  });
+});
+
+describe('learners who leave a class', () => {
+  it('keeps the results of a dropped learner read-only (grid and import)', async () => {
+    const t = await asUser(TEACHER);
+    const reg = await t.post('/learners').send({ lrn: '999999520001', lastName: 'Dimaculangan', firstName: 'Rico', sex: 'MALE', birthdate: '2016-04-04', sectionId: teacherSection.id });
+    expect(reg.status).toBe(201);
+    const draft = await prisma.assessment.findFirstOrThrow({ where: { sectionId: teacherSection.id, status: 'DRAFT', schoolYearId: sy.id } });
+    expect((await t.put(`/assessments/${draft.id}/results`).send({ entries: [{ learnerId: reg.body.id, isAbsent: true, remarks: 'Absent on test day' }] })).status).toBe(200);
+
+    const enrolment = await prisma.enrolment.findFirstOrThrow({ where: { learnerId: reg.body.id, isCurrent: true } });
+    expect((await t.post(`/learners/enrolments/${enrolment.id}/end`).send({ status: 'DROPPED', reason: 'Stopped attending' })).status).toBe(200);
+
+    const edit = await t.put(`/assessments/${draft.id}/results`).send({ entries: [{ learnerId: reg.body.id, isAbsent: true, remarks: 'Changed after dropping' }] });
+    expect(edit.status).toBe(400);
+    expect(edit.body.error.details[0].message).toBe('Dimaculangan, Rico is no longer in this class (Stopped attending); their results are read-only');
+
+    const csv = ['lrn,absent', '999999520001,Y'].join('\n');
+    const imp = await t.post(`/assessments/${draft.id}/results/import`).field('dryRun', 'true').attach('file', Buffer.from(csv), 'r.csv');
+    expect(imp.body.errors[0].message).toContain('no longer in this class (Stopped attending)');
+
+    const row = (await t.get(`/assessments/${draft.id}`)).body.rows.find((x: { learner: { id: number } }) => x.learner.id === reg.body.id);
+    expect(row).toMatchObject({ enrolled: false, leftReason: 'Stopped attending', learner: { status: 'DROPPED' } });
+    expect((await prisma.assessmentResult.findFirstOrThrow({ where: { assessmentId: draft.id, learnerId: reg.body.id } })).remarks).toBe('Absent on test day');
   });
 });
 

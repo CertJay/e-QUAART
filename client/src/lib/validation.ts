@@ -8,8 +8,8 @@ export const LIMITS = {
   userFullName: 120,
   position: 120,
   email: 254,
-  learnerMinAge: 3,
-  learnerMaxAge: 25,
+  learnerMinAge: 5,
+  learnerMaxAge: 65,
 } as const;
 
 /** A fresh Idempotency-Key. `crypto.randomUUID` needs a secure context, which a LAN http server is not. */

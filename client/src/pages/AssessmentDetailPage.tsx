@@ -17,7 +17,7 @@ interface Detail {
   gradeLevel: { name: string }; learningArea: { name: string }; section: { id: number; name: string }; school: { name: string }; schoolYear: { label: string; status: 'OPEN' | 'CLOSING' | 'CLOSED' | 'ARCHIVED' }; term: { name: string };
   createdBy: { fullName: string }; verifiedBy: { fullName: string } | null;
   summary: { assessed: number; tier1: number; tier2: number; tier3: number; proficiencyRate: number | null; atRiskRate: number | null; averagePercentage: number | null; absent: number; bands: { id: number; label: string; tier: Tier; color: string; count: number }[]; competencies: { competencyId: number; code: string; description: string; itemsTotal: number; assessed: number; mastered: number; masteryRate: number | null }[] };
-  rows: { learner: { id: number; lrn: string; name: string; sex: string }; enrolled: boolean; result: Result | null }[] | null;
+  rows: { learner: { id: number; lrn: string; name: string; sex: string; status: string }; enrolled: boolean; leftReason: string | null; result: Result | null }[] | null;
   canEncode: boolean;
   canSubmit: boolean;
   canVerify: boolean;
@@ -271,17 +271,19 @@ function EncodingGrid({ a, editable, onSaved }: { a: Detail; editable: boolean; 
               const p = a.assessmentType.resultMode === 'PERCENTAGE' ? previewPercentage(score !== null && !Number.isNaN(score) ? score : null, a.maxScore) : null;
               const band = g.isAbsent ? null : previewBand(a.model.bands, a.assessmentType.resultMode, p, g.descriptor || null);
               const probs = problems(r.learner.id);
-              const disabled = !editable || g.isAbsent;
+              // Learners who left the class (dropped, transferred, moved) keep their results read-only.
+              const locked = !editable || !r.enrolled;
+              const disabled = locked || g.isAbsent;
               return (
                 <tr key={r.learner.id} className={`border-b border-line ${probs.length ? 'bg-red-50 dark:bg-red-950/30' : dirty.has(r.learner.id) ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}`}>
                   <td className="num px-3 py-1 text-xs text-ink-3">{i + 1}</td>
                   <td className="px-3 py-1">
                     <Link to={`/learners/${r.learner.id}`} className="font-medium hover:text-brand">{r.learner.name}</Link>
-                    <div className="font-mono text-[11px] text-ink-3">{r.learner.lrn}{!r.enrolled && <Badge tone="amber">not enrolled</Badge>}</div>
+                    <div className="font-mono text-[11px] text-ink-3">{r.learner.lrn}{!r.enrolled && <> <Badge tone="amber">{r.leftReason ?? 'Not enrolled'} · read-only</Badge></>}</div>
                     {probs.length > 0 && <div className="text-[11px] text-red-700 dark:text-red-300">{probs.join(' · ')}</div>}
                   </td>
                   <td className="px-2 py-1 text-center">
-                    <input type="checkbox" disabled={!editable} checked={g.isAbsent} onChange={(e) => update(r.learner.id, { isAbsent: e.target.checked })} aria-label={`${r.learner.name} absent`} />
+                    <input type="checkbox" disabled={locked} checked={g.isAbsent} onChange={(e) => update(r.learner.id, { isAbsent: e.target.checked })} aria-label={`${r.learner.name} absent`} />
                   </td>
                   {a.competencies.map((c) => (
                     <td key={c.competencyId} className="px-2 py-1 text-right">
@@ -312,7 +314,7 @@ function EncodingGrid({ a, editable, onSaved }: { a: Detail; editable: boolean; 
                   {a.assessmentType.resultMode === 'PERCENTAGE' && <td className="num px-2 py-1 text-right text-xs">{pct(p)}</td>}
                   <td className="px-2 py-1">{g.isAbsent ? <Badge>Absent</Badge> : <TierBadge tier={band?.tier} label={band?.label} />}</td>
                   <td className="px-2 py-1">
-                    <Input className="h-8 min-w-32" disabled={!editable} value={g.remarks} onChange={(e) => update(r.learner.id, { remarks: e.target.value })} aria-label={`${r.learner.name} remarks`} />
+                    <Input className="h-8 min-w-32" disabled={locked} value={g.remarks} onChange={(e) => update(r.learner.id, { remarks: e.target.value })} aria-label={`${r.learner.name} remarks`} />
                   </td>
                   {a.canRequestCorrection && (
                     <td className="whitespace-nowrap px-2 py-1">
