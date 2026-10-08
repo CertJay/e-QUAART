@@ -96,7 +96,15 @@ export function IlmpPage() {
             <div className="mb-3 flex justify-end"><Button variant="secondary" disabled={busy} onClick={() => finalize(drafts.map((p) => p.id))}>Finalize all {drafts.length} plans</Button></div>
           )}
           <div className="grid gap-3 lg:grid-cols-2">
-            {data.data.map((p) => <PlanCard key={p.id} plan={p} canEdit={data.canEdit} busy={busy} onChange={(body) => run(async () => { await api.patch(`/ilmps/${p.id}`, body); })} onFinalize={() => finalize([p.id])} />)}
+            {data.data.map((p) => (
+              <PlanCard
+                key={p.id} plan={p} canEdit={data.canEdit} busy={busy}
+                onChange={(body) => run(async () => { await api.patch(`/ilmps/${p.id}`, body); })}
+                onFinalize={() => finalize([p.id])}
+                onReopen={() => run(async () => { await api.post(`/ilmps/${p.id}/reopen`); return `${p.learner.name}'s ${p.learningArea.name} plan is back in “To check”.`; })}
+                onDelete={() => confirm(`Delete the draft ${p.learningArea.name} plan for ${p.learner.name}? Drafting again will re-create it from the latest results.`) && run(async () => { await api.del(`/ilmps/${p.id}`); return 'Draft deleted.'; })}
+              />
+            ))}
           </div>
         </>
       )}
@@ -104,7 +112,7 @@ export function IlmpPage() {
   );
 }
 
-function PlanCard({ plan, canEdit, busy, onChange, onFinalize }: { plan: Plan; canEdit: boolean; busy: boolean; onChange: (b: Record<string, unknown>) => void; onFinalize: () => void }) {
+function PlanCard({ plan, canEdit, busy, onChange, onFinalize, onReopen, onDelete }: { plan: Plan; canEdit: boolean; busy: boolean; onChange: (b: Record<string, unknown>) => void; onFinalize: () => void; onReopen: () => void; onDelete: () => void }) {
   const lines = plan.identifiedGaps.split('\n').filter(Boolean);
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState(plan.strategies);
@@ -145,6 +153,8 @@ function PlanCard({ plan, canEdit, busy, onChange, onFinalize }: { plan: Plan; c
 
       {canEdit && (
         <div className="mt-3 flex justify-end gap-2">
+          {plan.status === 'DRAFT' && <Button size="sm" variant="ghost" disabled={busy} onClick={onDelete}>Delete</Button>}
+          {plan.status !== 'DRAFT' && <Button size="sm" variant="ghost" disabled={busy} onClick={onReopen}>Move back to drafts</Button>}
           {plan.status === 'DRAFT' && <Button size="sm" disabled={busy} onClick={onFinalize}>Finalize</Button>}
           {plan.status === 'ACTIVE' && <Button size="sm" variant="secondary" disabled={busy} onClick={() => onChange({ status: 'COMPLETED' })}>Mark completed</Button>}
         </div>

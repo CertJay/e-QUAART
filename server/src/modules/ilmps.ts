@@ -165,3 +165,24 @@ ilmpsRouter.post('/finalize', requirePermission('intervention:write'), ah(async 
   for (const id of drafts) await audit(req, 'UPDATE', 'Ilmp', id, { status: 'DRAFT' }, { status: 'ACTIVE', finalizedAt: now });
   res.json({ finalized: drafts.length });
 }));
+
+/** Send a finalized or completed plan back to "To check" so the adviser can revise it. */
+ilmpsRouter.post('/:id/reopen', requirePermission('intervention:write'), ah(async (req, res) => {
+  const before = await loadPlan(req, idParam(req));
+  if (before.status === 'DRAFT') throw conflict('This plan is already a draft');
+  const p = await prisma.ilmp.update({ where: { id: before.id }, data: { status: 'DRAFT', finalizedAt: null, finalizedById: null } });
+  await audit(req, 'REOPEN', 'Ilmp', p.id, { status: before.status, finalizedAt: before.finalizedAt }, { status: 'DRAFT' });
+  res.json(p);
+}));
+
+/**
+ * Delete a draft plan. A plan in use must first be moved back to drafts, so an active plan
+ * cannot disappear with one click. Drafting again re-creates it from the current results.
+ */
+ilmpsRouter.delete('/:id', requirePermission('intervention:write'), ah(async (req, res) => {
+  const before = await loadPlan(req, idParam(req));
+  if (before.status !== 'DRAFT') throw conflict('Move this plan back to drafts before deleting it');
+  await prisma.ilmp.delete({ where: { id: before.id } });
+  await audit(req, 'DELETE', 'Ilmp', before.id, before, null);
+  res.json({ ok: true });
+}));

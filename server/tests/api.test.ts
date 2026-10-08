@@ -932,6 +932,34 @@ describe('automated ILMP (adviser only reviews and finalizes)', () => {
     const done = await t.patch(`/ilmps/${p.id}`).send({ status: 'COMPLETED' });
     expect(done.body.status).toBe('COMPLETED');
   });
+
+  it('moves finalized or completed plans back to drafts, and deletes only drafts', async () => {
+    const t = await asUser(TEACHER);
+    const completed = (await t.get(`/ilmps?sectionId=${teacherSection.id}&status=COMPLETED`)).body.data[0];
+    const active = (await t.get(`/ilmps?sectionId=${teacherSection.id}&status=ACTIVE`)).body.data[0];
+
+    const coord = await asUser(COORD);
+    expect((await coord.post(`/ilmps/${active.id}/reopen`)).status).toBe(403);
+    expect((await coord.delete(`/ilmps/${active.id}`)).status).toBe(403);
+
+    // A plan in use cannot be deleted directly.
+    const refused = await t.delete(`/ilmps/${active.id}`);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.message).toBe('Move this plan back to drafts before deleting it');
+
+    const back = await t.post(`/ilmps/${completed.id}/reopen`);
+    expect(back.body).toMatchObject({ status: 'DRAFT', finalizedAt: null, finalizedById: null });
+    expect((await t.post(`/ilmps/${completed.id}/reopen`)).status).toBe(409); // already a draft
+    expect((await t.post(`/ilmps/${active.id}/reopen`)).body.status).toBe('DRAFT');
+
+    // Delete a draft; drafting again re-creates the learner's plan from the current results.
+    expect((await t.delete(`/ilmps/${active.id}`)).status).toBe(200);
+    expect(await prisma.ilmp.count({ where: { id: active.id } })).toBe(0);
+    const redraft = await t.post('/ilmps/generate').send({ sectionId: teacherSection.id });
+    expect(redraft.body.created).toBe(1);
+    const logs = await prisma.auditLog.findMany({ where: { entity: 'Ilmp', entityId: { in: [String(active.id), String(completed.id)] }, action: { in: ['REOPEN', 'DELETE'] } } });
+    expect(logs.map((l) => l.action).sort()).toEqual(['DELETE', 'REOPEN', 'REOPEN']);
+  });
 });
 
 describe('learners who leave a class', () => {
