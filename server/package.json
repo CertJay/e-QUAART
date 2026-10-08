@@ -5,6 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
+    "postinstall": "node -e \"require('fs').existsSync('prisma/schema.prisma') && require('child_process').execSync('npx prisma generate', { stdio: 'inherit' })\"",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
@@ -12,7 +13,7 @@
     "test": "vitest run",
     "test:qa": "vitest run tests/qa",
     "test:personas": "vitest run tests/personas",
-    "db:migrate": "prisma migrate deploy",
+    "db:migrate": "prisma migrate deploy && prisma generate",
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force --skip-seed && tsx prisma/seed.ts",
